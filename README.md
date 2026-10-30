@@ -5,6 +5,8 @@ graphs, similar to Blender's node editor: nodes have typed inputs and outputs
 connected by wires, and incompatible types (e.g. `LidarScan` to `int32`)
 can't be connected.
 
+![A VL graph: Input Number → Add (+5) → Show Number](docs/screenshot.png)
+
 VL is a visual front end for a compiler, not a runtime: the goal is to
 translate the graph into C++ (or another compiled language) that runs on the
 target hardware.
