@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -23,13 +24,19 @@ def main() -> int:
     app.setOrganizationName("VL")
 
     try:
-        catalog = load_node_definitions(APP_DIR / "nodes")
+        builtin_nodes = load_node_definitions(APP_DIR / "nodes")
     except CatalogError as e:
         print(f"Failed to load node definitions: {e}", file=sys.stderr)
         return 1
 
-    graph_model = GraphModel(catalog)
-    project = Project(graph_model)
+    try:
+        default_palette = json.loads((APP_DIR / "palette.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"Failed to load palette.json: {e}", file=sys.stderr)
+        return 1
+
+    graph_model = GraphModel(builtin_nodes)
+    project = Project(graph_model, builtin_nodes, default_palette)
 
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("graphModel", graph_model)

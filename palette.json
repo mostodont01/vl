@@ -1,0 +1,15 @@
+{
+    "groups": {
+        "Input": "#4ade80",
+        "Output": "#f472b6",
+        "Math": "#60a5fa",
+        "Logic": "#c084fc",
+        "Values": "#94a3b8",
+        "Other": "#72a7ff"
+    },
+    "types": {
+        "int32": "#f59e0b",
+        "float32": "#4ade80",
+        "bool": "#c084fc"
+    }
+}

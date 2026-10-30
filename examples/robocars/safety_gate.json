@@ -1,6 +1,7 @@
 {
     "id": "safety_gate",
-    "category": "Logic",
+    "code": ["src/safety_gate.cpp", "src/safety_gate.hpp"],
+    "group": "Logic",
     "title": "Safety Gate",
     "description": "Passes velocity when active is true; stops when false",
     "inputs": [

@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
-import "SocketTypes.js" as SocketTypes
 
 // Visual representation of one node. Rows, top to bottom (like Blender):
 // outputs (right edge), settings (no socket), inputs (left edge).
@@ -13,7 +12,6 @@ Rectangle {
 
 	// -- Data (set by NodeCanvas) -----------------------------------------
 	property string nodeId: ""
-	property string nodeType: ""
 	property string title: "Node"
 	property var nodeInputs: []
 	property var nodeOutputs: []
@@ -23,7 +21,11 @@ Rectangle {
 	property bool hasAppWidget: false     // Shows the eye toggle in the header.
 	property bool widgetVisible: true
 	property bool selected: false
-	property color accentColor: "#65a9ff"
+	property color accentColor: "#65a9ff"   // The node's group colour.
+	property var typeColors: ({})           // Socket type -> colour (project palette).
+	// Set briefly when an issue for this node is clicked.
+	property bool highlighted: false
+	property color highlightColor: "#f87171"
 
 	// -- Layout constants -------------------------------------------------
 	// Socket positions are computed from these, both for layout and for
@@ -61,8 +63,24 @@ Rectangle {
 
 	radius: 8
 	color: "#292c32"
-	border.color: selected ? root.accentColor : "#454a54"
-	border.width: 1
+	border.color: highlighted ? highlightColor : selected ? root.accentColor : "#454a54"
+	border.width: highlighted ? 2 : 1
+
+	function typeColor(typeName) {
+		return typeColors[typeName] || "#94a3b8"
+	}
+
+	// Glow around the node while highlighted.
+	Rectangle {
+		visible: root.highlighted
+		anchors.fill: parent
+		anchors.margins: -5
+		radius: root.radius + 5
+		color: "transparent"
+		border.color: root.highlightColor
+		border.width: 2
+		opacity: 0.45
+	}
 
 	// Center of a socket dot in this node's local coordinates, or null.
 	function getSocketCenter(socketId, isOutput) {
@@ -121,7 +139,7 @@ Rectangle {
 		readonly property bool hasSocket: kind !== "setting"
 		readonly property bool showsWidget: modelData.widget !== null && modelData.widget !== undefined
 			&& (kind === "setting" || (kind === "input" && !connected))
-		readonly property color typeColor: SocketTypes.color(modelData.type)
+		property color typeColor: "#94a3b8"
 		readonly property real dotCenterX: isOutput ? width : 0
 		readonly property real labelWidth: showsWidget ? Math.round((width - 24) * 0.42) : width - 24
 
@@ -345,6 +363,7 @@ Rectangle {
 			model: root.nodeOutputs
 
 			delegate: NodeRow {
+				typeColor: root.typeColor(modelData.type)
 				width: rows.width
 				height: root.rowPitch
 				dotSize: root.socketDotSize
@@ -361,6 +380,7 @@ Rectangle {
 			model: root.shownSettings
 
 			delegate: NodeRow {
+				typeColor: root.typeColor(modelData.type)
 				width: rows.width
 				height: root.rowPitch
 				kind: "setting"
@@ -375,6 +395,7 @@ Rectangle {
 			model: root.nodeInputs
 
 			delegate: NodeRow {
+				typeColor: root.typeColor(modelData.type)
 				width: rows.width
 				height: root.rowPitch
 				dotSize: root.socketDotSize

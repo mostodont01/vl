@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import "SocketTypes.js" as SocketTypes
 
 // The node editor canvas: grid, wires, nodes, navigation, selection,
 // clipboard and the Shift+A add-node popup.
@@ -38,6 +37,39 @@ Item {
 	// Cached copy of the model's connections; bindings that read it update
 	// automatically when connections change.
 	readonly property var connections: graphModel ? graphModel.connections : []
+
+	// Project palette: socket type -> colour, group -> colour.
+	readonly property var typeColors: project.typeColors
+	readonly property var groupColors: project.groupColors
+
+	function typeColor(typeName) { return typeColors[typeName] || "#94a3b8" }
+	function groupColor(group) { return groupColors[group] || "#72a7ff" }
+
+	onTypeColorsChanged: connectionsCanvas.requestPaint()
+
+	// Node briefly highlighted after clicking its issue.
+	property string highlightedNodeId: ""
+	property color highlightColor: "#f87171"
+
+	Timer {
+		id: highlightTimer
+		interval: 2000
+		onTriggered: root.highlightedNodeId = ""
+	}
+
+	// Select a node, centre it in view and highlight it in the given colour.
+	function focusNode(nodeId, color) {
+		var d = findNodeDelegate(nodeId)
+		if (!d)
+			return
+		selectedNodeIds = [nodeId]
+		root.panX = root.width / 2 - (d.x + d.width / 2) * root.zoomFactor
+		root.panY = root.height / 2 - (d.y + d.height / 2) * root.zoomFactor
+		highlightColor = color
+		highlightedNodeId = nodeId
+		highlightTimer.restart()
+		forceActiveFocus()
+	}
 
 	// How close (in screen pixels) the cursor must be to a socket to snap.
 	readonly property real snapRadiusPx: 28
@@ -476,10 +508,10 @@ Item {
 			selectedNodeIds = ids
 	}
 
-	Shortcut { sequence: "Ctrl+C"; onActivated: root.copySelection() }
-	Shortcut { sequence: "Ctrl+V"; onActivated: root.paste() }
-	Shortcut { sequence: "Ctrl+D"; onActivated: root.duplicateSelection() }
-	Shortcut { sequence: "Home"; onActivated: root.frameAll() }
+	Shortcut { sequence: "Ctrl+C"; enabled: root.visible; onActivated: root.copySelection() }
+	Shortcut { sequence: "Ctrl+V"; enabled: root.visible; onActivated: root.paste() }
+	Shortcut { sequence: "Ctrl+D"; enabled: root.visible; onActivated: root.duplicateSelection() }
+	Shortcut { sequence: "Home"; enabled: root.visible; onActivated: root.frameAll() }
 
 	// -- Drawing ----------------------------------------------------------
 
@@ -605,6 +637,7 @@ Item {
 	Shortcut {
 		sequence: "Shift+A"
 		context: Qt.WindowShortcut
+		enabled: root.visible
 		onActivated: root.openAddNodePopup()
 	}
 
@@ -665,7 +698,7 @@ Item {
 				root.drawWire(ctx,
 					root.toScreenX(src.x), root.toScreenY(src.y),
 					root.toScreenX(tgt.x), root.toScreenY(tgt.y),
-					SocketTypes.color(conn.dataType), false,
+					root.typeColor(conn.dataType), false,
 					root.loopYBelow(conn.sourceNode, conn.targetNode))
 			}
 		}
@@ -760,7 +793,6 @@ Item {
 				id: nodeDelegate
 
 				required property string nodeId
-				required property string nodeType
 				required property string title
 				required property real nodeX
 				required property real nodeY
@@ -770,6 +802,8 @@ Item {
 				required property var nodeValues
 				required property bool hasAppWidget
 				required property bool widgetVisible
+				required property string nodeGroup
+				required property string nodeDescription
 
 				readonly property Node node: nodeItem
 				readonly property bool isSelected: root.selectedNodeIds.indexOf(nodeId) !== -1
@@ -794,7 +828,6 @@ Item {
 					anchors.fill: parent
 
 					nodeId: nodeDelegate.nodeId
-					nodeType: nodeDelegate.nodeType
 					title: nodeDelegate.title
 					nodeInputs: nodeDelegate.nodeInputs
 					nodeOutputs: nodeDelegate.nodeOutputs
@@ -802,6 +835,10 @@ Item {
 					nodeValues: nodeDelegate.nodeValues
 					hasAppWidget: nodeDelegate.hasAppWidget
 					widgetVisible: nodeDelegate.widgetVisible
+					accentColor: root.groupColor(nodeDelegate.nodeGroup)
+					typeColors: root.typeColors
+					highlighted: root.highlightedNodeId === nodeDelegate.nodeId
+					highlightColor: root.highlightColor
 					connectedInputIds: root.connectedInputIdsFor(nodeDelegate.nodeId)
 					selected: nodeDelegate.isSelected
 
@@ -836,7 +873,7 @@ Item {
 			var anchorY = root.toScreenY(dragWire.anchorWorldY)
 			var endX = root.toScreenX(dragWire.snapped ? dragWire.snapWorldX : dragWire.cursorWorldX)
 			var endY = root.toScreenY(dragWire.snapped ? dragWire.snapWorldY : dragWire.cursorWorldY)
-			var color = SocketTypes.color(dragWire.dataType)
+			var color = root.typeColor(dragWire.dataType)
 
 			// Always draw output -> input so the curve bends the right way.
 			if (dragWire.fromOutput)
@@ -881,43 +918,44 @@ Item {
 			border.color: "#454a54"
 		}
 
-		// Categories the user has opened (category name -> true). All start
+		// Groups the user has opened (group name -> true). All start
 		// collapsed each time the popup opens.
 		property var expanded: ({})
 
-		// Rows shown in the list: a header per category, followed by its nodes
-		// when that category is open. While searching, every category with a
-		// match (in the node title or the category name) is shown open.
+		// Rows shown in the list: a header per group, followed by its nodes
+		// when that group is open. While searching, every group with a
+		// match (in the node title or the group name) is shown open.
 		readonly property var rows: {
 			var query = nodeSearch.text.trim().toLowerCase()
 			var result = []
-			var types = graphModel.availableNodeTypes  // sorted by category, then title
+			var types = graphModel.availableNodeTypes  // sorted by group, then title
 			var i = 0
 			while (i < types.length) {
-				var category = types[i].category
+				var group = types[i].group
 				var matches = []
-				for (; i < types.length && types[i].category === category; i++) {
+				for (; i < types.length && types[i].group === group; i++) {
 					var t = types[i]
 					if (query === "" || t.title.toLowerCase().indexOf(query) !== -1
-							|| category.toLowerCase().indexOf(query) !== -1)
+							|| group.toLowerCase().indexOf(query) !== -1)
 						matches.push(t)
 				}
 				if (matches.length === 0)
 					continue
 
-				var open = query !== "" || addNodePopup.expanded[category] === true
-				result.push({ isHeader: true, category: category, open: open, count: matches.length })
+				var open = query !== "" || addNodePopup.expanded[group] === true
+				result.push({ isHeader: true, group: group, open: open, count: matches.length })
 				if (open) {
 					for (var j = 0; j < matches.length; j++)
-						result.push({ isHeader: false, category: category, typeId: matches[j].typeId, title: matches[j].title })
+						result.push({ isHeader: false, group: group, typeId: matches[j].typeId,
+							title: matches[j].title, description: matches[j].description })
 				}
 			}
 			return result
 		}
 
-		function toggleCategory(category) {
+		function toggleGroup(group) {
 			var next = Object.assign({}, expanded)
-			next[category] = !next[category]
+			next[group] = !next[group]
 			expanded = next
 		}
 
@@ -930,13 +968,13 @@ Item {
 			nodeListView.positionViewAtIndex(selectedRow, ListView.Contain)
 		}
 
-		// Enter: open/close the selected category, or add the selected node.
+		// Enter: open/close the selected group, or add the selected node.
 		function activateSelected() {
 			var row = rows[selectedRow]
 			if (!row)
 				return
 			if (row.isHeader)
-				toggleCategory(row.category)
+				toggleGroup(row.group)
 			else
 				root.addNodeFromPopup(row.typeId)
 		}
@@ -971,7 +1009,7 @@ Item {
 			anchors.fill: parent
 			spacing: 8
 
-			TextField {
+			VTextField {
 				id: nodeSearch
 				Layout.fillWidth: true
 				placeholderText: "Search nodes..."
@@ -1017,8 +1055,15 @@ Item {
 							color: "#929ba8"
 							font.pixelSize: 11
 						}
+						Rectangle {
+							anchors.verticalCenter: parent.verticalCenter
+							width: 8
+							height: 8
+							radius: 2
+							color: root.groupColor(row.modelData.group)
+						}
 						Text {
-							text: row.modelData.category.toUpperCase()
+							text: row.modelData.group.toUpperCase()
 							color: "#b9c0cb"
 							font.pixelSize: 10
 							font.weight: Font.Bold
@@ -1047,6 +1092,10 @@ Item {
 						anchors.fill: parent
 						hoverEnabled: true
 						cursorShape: Qt.PointingHandCursor
+
+						ToolTip.visible: containsMouse && !row.modelData.isHeader && !!row.modelData.description
+						ToolTip.delay: 600
+						ToolTip.text: row.modelData.description || ""
 						onClicked: {
 							addNodePopup.selectedRow = row.index
 							addNodePopup.activateSelected()

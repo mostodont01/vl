@@ -1,6 +1,6 @@
 {
     "id": "threshold",
-    "category": "Logic",
+    "group": "Logic",
     "title": "Threshold",
     "description": "Compares value against threshold",
     "settings": [

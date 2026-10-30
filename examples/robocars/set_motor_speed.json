@@ -1,6 +1,7 @@
 {
     "id": "set_motor_speed",
-    "category": "Actuators",
+    "code": ["src/set_motor_speed.cpp", "src/set_motor_speed.hpp"],
+    "group": "Actuators",
     "title": "Set Motor Speed",
     "description": "Commands velocity setpoint to the drive controller",
     "inputs": [

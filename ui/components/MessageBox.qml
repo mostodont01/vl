@@ -78,10 +78,10 @@ Popup {
 			Repeater {
 				model: root.buttons
 
-				delegate: Button {
+				delegate: VButton {
 					required property string modelData
 					text: modelData
-					highlighted: modelData === root.defaultButton
+					kind: modelData === root.defaultButton ? "primary" : "normal"
 					onClicked: root.choose(modelData)
 				}
 			}

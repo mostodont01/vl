@@ -50,7 +50,7 @@ Popup {
 	}
 
 	// Drop-down for one of the project's compile choices.
-	component ChoiceField: ComboBox {
+	component ChoiceField: VComboBox {
 		id: combo
 		property string key: ""
 
@@ -108,7 +108,7 @@ Popup {
 			ChoiceField { key: "build_type" }
 
 			FieldLabel { text: "Executable name" }
-			TextField {
+			VTextField {
 				id: nameField
 				Layout.fillWidth: true
 				text: project.compileSettings.executable_name
@@ -122,7 +122,7 @@ Popup {
 				Layout.fillWidth: true
 				spacing: 6
 
-				TextField {
+				VTextField {
 					id: outputField
 					Layout.fillWidth: true
 					text: project.compileSettings.output_dir
@@ -130,14 +130,14 @@ Popup {
 					onEditingFinished: project.setCompileSetting("output_dir", text)
 					onAccepted: root.compile()
 				}
-				Button {
+				VButton {
 					text: "Browse…"
 					onClicked: folderDialog.open()
 				}
 			}
 
 			Item { width: 1; height: 1 }
-			CheckBox {
+			VCheckBox {
 				text: "Run fullscreen"
 				checked: project.compileSettings.fullscreen
 				onToggled: project.setCompileSetting("fullscreen", checked)
@@ -156,13 +156,13 @@ Popup {
 				font.pixelSize: 11
 			}
 
-			Button {
+			VButton {
 				text: "Cancel"
 				onClicked: root.close()
 			}
-			Button {
+			VButton {
 				text: "Compile"
-				highlighted: true
+				kind: "primary"
 				onClicked: root.compile()
 			}
 		}

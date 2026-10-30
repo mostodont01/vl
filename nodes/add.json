@@ -1,6 +1,6 @@
 {
     "id": "add",
-    "category": "Math",
+    "group": "Math",
     "title": "Add",
     "description": "Adds A and B",
     "inputs": [

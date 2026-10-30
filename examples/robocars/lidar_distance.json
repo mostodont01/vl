@@ -1,6 +1,7 @@
 {
     "id": "lidar_distance",
-    "category": "Sensors",
+    "code": ["src/lidar_distance.cpp", "src/lidar_distance.hpp"],
+    "group": "Sensors",
     "title": "LiDAR Distance",
     "description": "Extracts radial distance at a specific bearing angle",
     "inputs": [

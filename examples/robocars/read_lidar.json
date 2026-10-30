@@ -1,6 +1,7 @@
 {
     "id": "read_lidar",
-    "category": "Sensors",
+    "code": ["src/read_lidar.cpp", "src/read_lidar.hpp"],
+    "group": "Sensors",
     "title": "Read LiDAR",
     "description": "Produces raw LiDAR range scan frames",
     "settings": [

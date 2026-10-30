@@ -1,13 +1,15 @@
 """Node catalog: the node types VL knows about.
 
-Each node type is defined in its own JSON file in the nodes/ directory (see
-nodes/README.md for the format). This module loads and validates those files
-into frozen dataclasses that the rest of the app uses.
+Each node type is defined by a JSON file (see nodes/README.md for the
+format). Built-in nodes live in the app's nodes/ directory; nodes imported
+into a project are stored inside the project file as "node packages": the
+JSON plus the code files it lists. This module loads and validates both into
+frozen dataclasses that the rest of the app uses.
 """
 
 import json
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -97,11 +99,11 @@ class SettingDef:
 class AppWidgetDef:
     """A widget this node shows in the compiled app (e.g. a number display).
 
-    Widget kinds will be a built-in library implemented by VL; for now the
-    kind and its options are only stored. The compiled app lays out all
-    visible widgets automatically.
+    The widget is implemented in the node's own C++ code; class_name names
+    the class there. The exact C++ interface is designed together with the
+    compiler. The compiled app lays out all visible widgets automatically.
     """
-    kind: str
+    class_name: str
     options: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,8 +115,12 @@ class NodeDef:
     outputs: tuple[SocketDef, ...]
     settings: tuple[SettingDef, ...] = ()
     description: str = ""
-    category: str = "Other"   # Group in the Shift+A menu.
+    group: str = "Other"      # Shift+A menu section; also gives the node its colour.
     app_widget: AppWidgetDef | None = None
+    code: tuple[str, ...] = ()  # Source files, relative to the JSON file.
+
+    def socket_types(self) -> set[str]:
+        return {s.type for s in self.inputs + self.outputs}
 
     def value_fields(self) -> dict[str, tuple[str, WidgetDef]]:
         """Every editable value on this node: {id: (data type, widget)}."""
@@ -195,8 +201,28 @@ def _parse_setting(raw: Any, where: str) -> SettingDef:
 def _parse_app_widget(raw: Any, where: str) -> AppWidgetDef:
     if not isinstance(raw, dict):
         raise CatalogError(f"{where}: 'app_widget' must be an object")
-    kind = _require(raw, "kind", f"{where} app_widget")
-    return AppWidgetDef(kind=kind, options={k: v for k, v in raw.items() if k != "kind"})
+    class_name = _require(raw, "class", f"{where} app_widget")
+    return AppWidgetDef(class_name=class_name, options={k: v for k, v in raw.items() if k != "class"})
+
+
+def _parse_code(raw: Any, where: str) -> tuple[str, ...]:
+    """'code' is a path or a list of paths relative to the JSON file.
+
+    Paths must stay inside the JSON's folder, so a node package can be
+    copied into a project with its folder structure intact.
+    """
+    paths = [raw] if isinstance(raw, str) else raw
+    if not isinstance(paths, list) or not all(isinstance(p, str) and p for p in paths):
+        raise CatalogError(f"{where}: 'code' must be a path or a list of paths")
+
+    result = []
+    for p in paths:
+        pure = PurePosixPath(p.replace("\\", "/"))
+        if pure.is_absolute() or ".." in pure.parts:
+            raise CatalogError(f"{where}: code path '{p}' must be relative and inside the node's folder")
+        result.append(str(pure))
+    _unique(result, f"{where} code")
+    return tuple(result)
 
 
 def _unique(ids: list[str], where: str):
@@ -231,8 +257,9 @@ def parse_node_definition(raw: Any, where: str) -> NodeDef:
         outputs=outputs,
         settings=settings,
         description=raw.get("description", ""),
-        category=raw.get("category", "Other"),
+        group=raw.get("group", "Other"),
         app_widget=_parse_app_widget(raw["app_widget"], where) if "app_widget" in raw else None,
+        code=_parse_code(raw["code"], where) if "code" in raw else (),
     )
 
 
@@ -254,3 +281,49 @@ def load_node_definitions(directory: Path) -> dict[str, NodeDef]:
         catalog[node_def.type_id] = node_def
 
     return catalog
+
+
+# ---------------------------------------------------------------------------
+# Node packages (imported nodes)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class NodePackage:
+    """An imported node: its definition plus the files it was made from."""
+    definition: NodeDef
+    json_text: str
+    files: dict[str, bytes]   # code path as written in the JSON -> file content
+
+
+def node_package_from_files(json_text: str, files: dict[str, bytes], where: str) -> NodePackage:
+    """Build a package from already-read content (e.g. from a project file)."""
+    try:
+        raw = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        raise CatalogError(f"{where}: invalid JSON: {e}") from None
+    node_def = parse_node_definition(raw, where)
+    missing = [p for p in node_def.code if p not in files]
+    if missing:
+        raise CatalogError(f"{where}: missing code file(s): {', '.join(missing)}")
+    return NodePackage(node_def, json_text, {p: files[p] for p in node_def.code})
+
+
+def load_node_package(json_path: Path) -> NodePackage:
+    """Read a node's JSON and every code file it lists (relative to the JSON)."""
+    try:
+        json_text = json_path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise CatalogError(f"{json_path.name}: {e.strerror}") from None
+
+    try:
+        code = parse_node_definition(json.loads(json_text), json_path.name).code
+    except json.JSONDecodeError as e:
+        raise CatalogError(f"{json_path.name}: invalid JSON: {e}") from None
+
+    files = {}
+    for rel in code:
+        try:
+            files[rel] = (json_path.parent / rel).read_bytes()
+        except OSError:
+            raise CatalogError(f"{json_path.name}: code file not found: {json_path.parent / rel}") from None
+    return node_package_from_files(json_text, files, json_path.name)

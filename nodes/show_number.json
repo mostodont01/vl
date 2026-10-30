@@ -1,9 +1,9 @@
 {
     "id": "show_number",
-    "category": "Output",
+    "group": "Output",
     "title": "Show Number",
     "description": "Displays a number in the compiled app",
-    "app_widget": { "kind": "number_display" },
+    "app_widget": { "class": "ShowNumberWidget" },
     "settings": [
         { "id": "label", "name": "Label", "type": "string", "app_widget_only": true,
           "widget": { "kind": "string", "default": "Value" } }

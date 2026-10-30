@@ -1,6 +1,6 @@
 {
     "id": "constant_int",
-    "category": "Values",
+    "group": "Values",
     "title": "Constant Int",
     "description": "Emits an integer literal value",
     "settings": [

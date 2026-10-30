@@ -60,10 +60,13 @@ class GraphModel(QAbstractListModel):
     ValuesRole = IdRole + 8
     HasAppWidgetRole = IdRole + 9
     WidgetVisibleRole = IdRole + 10
+    GroupRole = IdRole + 11
+    DescriptionRole = IdRole + 12
 
     MAX_UNDO_STEPS = 200
 
     connectionsChanged = Signal()
+    catalogChanged = Signal()
     historyChanged = Signal()
     # Emitted after any change to the graph's content (used for "unsaved changes").
     graphChanged = Signal()
@@ -80,16 +83,33 @@ class GraphModel(QAbstractListModel):
         self._redo_stack: list[dict] = []
         self._clipboard: dict | None = None
         self.graphChanged.connect(self.issuesChanged)
+        self._qml_sockets: dict[str, dict] = {}
+        self._build_qml_sockets()
 
-        # Socket/setting lists in the shape QML wants, built once per node type.
+    def _build_qml_sockets(self):
+        """Socket/setting lists in the shape QML wants, built once per node type."""
         self._qml_sockets = {
             type_id: {
                 "inputs": [self._socket_to_qml(s) for s in d.inputs],
                 "outputs": [self._socket_to_qml(s) for s in d.outputs],
                 "settings": [self._socket_to_qml(s) for s in d.settings],
             }
-            for type_id, d in catalog.items()
+            for type_id, d in self.catalog.items()
         }
+
+    def set_catalog(self, catalog: dict[str, NodeDef]) -> list[str]:
+        """Switch to a new set of node types (e.g. after importing a node).
+
+        Existing nodes are rebuilt against the new definitions: nodes whose
+        type disappeared are removed, and wires or values that no longer fit
+        are dropped. Undo history is cleared, since old snapshots may refer
+        to definitions that no longer exist. Returns warnings.
+        """
+        snapshot = self.to_dict()
+        self.catalog = catalog
+        self._build_qml_sockets()
+        self.catalogChanged.emit()
+        return self.load_dict(snapshot)
 
     @staticmethod
     def _socket_to_qml(s) -> dict[str, Any]:
@@ -116,6 +136,8 @@ class GraphModel(QAbstractListModel):
             self.ValuesRole: b"nodeValues",
             self.HasAppWidgetRole: b"hasAppWidget",
             self.WidgetVisibleRole: b"widgetVisible",
+            self.GroupRole: b"nodeGroup",
+            self.DescriptionRole: b"nodeDescription",
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -151,6 +173,10 @@ class GraphModel(QAbstractListModel):
             return self.catalog[node.type].app_widget is not None
         if role == self.WidgetVisibleRole:
             return node.widget_visible
+        if role == self.GroupRole:
+            return self.catalog[node.type].group
+        if role == self.DescriptionRole:
+            return self.catalog[node.type].description
 
         return None
 
@@ -174,12 +200,12 @@ class GraphModel(QAbstractListModel):
     def connectionCount(self) -> int:
         return len(self.connections_dict)
 
-    @Property("QVariantList", constant=True)
+    @Property("QVariantList", notify=catalogChanged)
     def availableNodeTypes(self) -> list[dict[str, str]]:
-        """Catalog entries for the add-node popup, sorted by category, then title."""
+        """Catalog entries for the add-node popup, sorted by group, then title."""
         return [
-            {"typeId": d.type_id, "title": d.title, "description": d.description, "category": d.category}
-            for d in sorted(self.catalog.values(), key=lambda d: (d.category.lower(), d.title.lower()))
+            {"typeId": d.type_id, "title": d.title, "description": d.description, "group": d.group}
+            for d in sorted(self.catalog.values(), key=lambda d: (d.group.lower(), d.title.lower()))
         ]
 
     @Property(bool, notify=historyChanged)
