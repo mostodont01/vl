@@ -2,9 +2,11 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import "SocketTypes.js" as SocketTypes
 
-// Visual representation of one node: a header (drag handle) plus input
-// sockets on the left and output sockets on the right. The node does not
-// create wires itself; it reports socket presses to NodeCanvas.
+// Visual representation of one node. Rows, top to bottom (like Blender):
+// outputs (right edge), settings (no socket), inputs (left edge).
+//
+// The node changes nothing itself: presses, drags, wire drags and value edits
+// are reported to NodeCanvas, which talks to the model.
 Rectangle {
 	id: root
 
@@ -14,6 +16,8 @@ Rectangle {
 	property string title: "Node"
 	property var nodeInputs: []
 	property var nodeOutputs: []
+	property var nodeSettings: []
+	property var nodeValues: ({})
 	property var connectedInputIds: []
 	property bool selected: false
 	property color accentColor: "#65a9ff"
@@ -22,22 +26,27 @@ Rectangle {
 	// Socket positions are computed from these, both for layout and for
 	// getSocketCenter(), so wires always end exactly on the socket dots.
 	readonly property int headerHeight: 34
-	readonly property int socketsTopPadding: 8
-	readonly property int socketPitch: 26      // Height of one socket row.
-	readonly property int socketsBottomPadding: 16
+	readonly property int rowsTopPadding: 8
+	readonly property int rowPitch: 26          // Height of one row.
+	readonly property int rowsBottomPadding: 10
 	readonly property int socketDotSize: 12
-	readonly property int socketHitWidth: 28   // Clickable area is larger than the dot.
+	readonly property int socketHitWidth: 28    // Clickable area is larger than the dot.
 
-	signal selectionRequested(string nodeId, bool additive)
+	// Body presses select and move the node (handled by the canvas).
+	signal bodyPressed(string nodeId, bool ctrl, var mouseArea, var mouse)
+	signal bodyMoved(var mouseArea, var mouse)
+	signal bodyReleased()
 	signal wireDragStarted(string nodeId, string socketId, bool isOutput, var mouseArea, var mouse)
 	signal wireDragMoved(var mouseArea, var mouse)
 	signal wireDragEnded(var mouseArea, var mouse)
 	signal disconnectSocketRequested(string nodeId, string socketId)
+	signal valueEdited(string nodeId, string key, var value)
+	signal editingDone()
 
 	implicitWidth: 230
-	implicitHeight: Math.max(90, headerHeight + socketsTopPadding
-		+ Math.max(nodeInputs.length, nodeOutputs.length) * socketPitch
-		+ socketsBottomPadding)
+	implicitHeight: headerHeight + rowsTopPadding
+		+ (nodeOutputs.length + nodeSettings.length + nodeInputs.length) * rowPitch
+		+ rowsBottomPadding
 	width: implicitWidth
 	height: implicitHeight
 
@@ -49,38 +58,67 @@ Rectangle {
 	// Center of a socket dot in this node's local coordinates, or null.
 	function getSocketCenter(socketId, isOutput) {
 		var sockets = isOutput ? root.nodeOutputs : root.nodeInputs
+		var firstRow = isOutput ? 0 : root.nodeOutputs.length + root.nodeSettings.length
 		for (var i = 0; i < sockets.length; i++) {
 			if (sockets[i].id === socketId) {
 				return {
 					x: isOutput ? root.width : 0,
-					y: headerHeight + socketsTopPadding + i * socketPitch + socketPitch / 2
+					y: headerHeight + rowsTopPadding + (firstRow + i) * rowPitch + rowPitch / 2
 				}
 			}
 		}
 		return null
 	}
 
-	// One socket row. Used for both inputs and outputs; outputs are mirrored.
-	component SocketRow: Item {
+	function valueOf(key) {
+		return root.nodeValues ? root.nodeValues[key] : undefined
+	}
+
+	// Catches presses on the node that no socket or widget took. Declared
+	// first so everything else sits on top of it.
+	MouseArea {
+		id: bodyMouse
+		anchors.fill: parent
+		acceptedButtons: Qt.LeftButton
+		cursorShape: pressed ? Qt.ClosedHandCursor : Qt.ArrowCursor
+
+		onPressed: function(mouse) {
+			root.bodyPressed(root.nodeId, mouse.modifiers & Qt.ControlModifier, bodyMouse, mouse)
+		}
+		onPositionChanged: function(mouse) { root.bodyMoved(bodyMouse, mouse) }
+		onReleased: root.bodyReleased()
+	}
+
+	// One row: an optional socket dot, a label, and either the type name or
+	// a value widget. Used for outputs, settings and inputs.
+	component NodeRow: Item {
 		id: row
 
 		required property var modelData
-		required property int index
-		property bool isOutput: false
+		property string kind: "input"   // "input", "output" or "setting"
 		property bool connected: false
+		property var value
 		property int dotSize: 12
 		property int hitWidth: 28
 
-		signal pressed(var mouseArea, var mouse)
-		signal moved(var mouseArea, var mouse)
-		signal released(var mouseArea, var mouse)
-		signal rightClicked()
+		signal socketPressed(var mouseArea, var mouse)
+		signal socketMoved(var mouseArea, var mouse)
+		signal socketReleased(var mouseArea, var mouse)
+		signal socketRightClicked()
+		signal valueEdited(var value)
+		signal editingDone()
 
+		readonly property bool isOutput: kind === "output"
+		readonly property bool hasSocket: kind !== "setting"
+		readonly property bool showsWidget: modelData.widget !== null && modelData.widget !== undefined
+			&& (kind === "setting" || (kind === "input" && !connected))
 		readonly property color typeColor: SocketTypes.color(modelData.type)
 		readonly property real dotCenterX: isOutput ? width : 0
+		readonly property real labelWidth: showsWidget ? Math.round((width - 24) * 0.42) : width - 24
 
 		Rectangle {
 			id: dot
+			visible: row.hasSocket
 			x: row.dotCenterX - width / 2
 			anchors.verticalCenter: parent.verticalCenter
 			width: row.dotSize
@@ -97,23 +135,27 @@ Rectangle {
 			Behavior on scale { NumberAnimation { duration: 80 } }
 		}
 
+		// Label (+ type name when there's no widget)
 		Row {
 			anchors.verticalCenter: parent.verticalCenter
 			anchors.left: row.isOutput ? undefined : parent.left
 			anchors.right: row.isOutput ? parent.right : undefined
 			anchors.leftMargin: 12
 			anchors.rightMargin: 12
+			width: row.labelWidth
 			layoutDirection: row.isOutput ? Qt.RightToLeft : Qt.LeftToRight
 			spacing: 5
+			clip: true
 
 			Text {
 				text: row.modelData.name
-				color: "#e2e7ef"
+				color: row.kind === "setting" ? "#b9c0cb" : "#e2e7ef"
 				font.pixelSize: 11
 				font.weight: Font.Medium
 			}
 
 			Text {
+				visible: !row.showsWidget
 				text: row.modelData.type
 				color: row.typeColor
 				font.pixelSize: 9
@@ -122,10 +164,27 @@ Rectangle {
 			}
 		}
 
+		ValueWidget {
+			visible: row.showsWidget
+			enabled: visible
+			anchors.right: parent.right
+			anchors.rightMargin: 10
+			anchors.verticalCenter: parent.verticalCenter
+			width: parent.width - 12 - row.labelWidth - 6 - 10
+			height: 20
+			widget: row.modelData.widget || ({})
+			value: row.value
+			accentColor: row.typeColor
+
+			onEdited: (value) => row.valueEdited(value)
+			onEditingDone: row.editingDone()
+		}
+
 		// Clickable area around the dot: the full row height and wider than
 		// the dot, so sockets are easy to grab.
 		MouseArea {
 			id: hitArea
+			visible: row.hasSocket
 			x: row.dotCenterX - width / 2
 			width: row.hitWidth
 			height: row.height
@@ -136,24 +195,24 @@ Rectangle {
 
 			onPressed: function(mouse) {
 				if (mouse.button === Qt.LeftButton)
-					row.pressed(hitArea, mouse)
+					row.socketPressed(hitArea, mouse)
 			}
 			onPositionChanged: function(mouse) {
 				if (mouse.buttons & Qt.LeftButton)
-					row.moved(hitArea, mouse)
+					row.socketMoved(hitArea, mouse)
 			}
 			onReleased: function(mouse) {
 				if (mouse.button === Qt.LeftButton)
-					row.released(hitArea, mouse)
+					row.socketReleased(hitArea, mouse)
 			}
 			onClicked: function(mouse) {
 				if (mouse.button === Qt.RightButton)
-					row.rightClicked()
+					row.socketRightClicked()
 			}
 		}
 	}
 
-	// -- Header (title + drag handle) -------------------------------------
+	// -- Header -----------------------------------------------------------
 	Rectangle {
 		id: header
 
@@ -187,73 +246,64 @@ Rectangle {
 			font.pixelSize: 13
 			font.bold: true
 		}
-
-		// Dragging moves the canvas delegate (root.parent) directly for smooth
-		// feedback; the final position is written to the model on release.
-		MouseArea {
-			anchors.fill: parent
-			acceptedButtons: Qt.LeftButton
-			cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-			drag.target: root.parent
-			drag.axis: Drag.XAndYAxis
-
-			onClicked: function(mouse) {
-				root.selectionRequested(root.nodeId, mouse.modifiers & Qt.ControlModifier)
-			}
-
-			onReleased: {
-				graphModel.setNodePosition(root.nodeId, root.parent.x, root.parent.y)
-			}
-		}
 	}
 
-	// -- Sockets ----------------------------------------------------------
+	// -- Rows -------------------------------------------------------------
 	Column {
-		id: inputsColumn
+		id: rows
 		anchors.left: parent.left
-		anchors.top: header.bottom
-		anchors.topMargin: root.socketsTopPadding
-		width: parent.width / 2 - 4
-
-		Repeater {
-			model: root.nodeInputs
-
-			delegate: SocketRow {
-				width: inputsColumn.width
-				height: root.socketPitch
-				dotSize: root.socketDotSize
-				hitWidth: root.socketHitWidth
-				isOutput: false
-				connected: root.connectedInputIds.indexOf(modelData.id) !== -1
-
-				onPressed: (mouseArea, mouse) => root.wireDragStarted(root.nodeId, modelData.id, false, mouseArea, mouse)
-				onMoved: (mouseArea, mouse) => root.wireDragMoved(mouseArea, mouse)
-				onReleased: (mouseArea, mouse) => root.wireDragEnded(mouseArea, mouse)
-				onRightClicked: root.disconnectSocketRequested(root.nodeId, modelData.id)
-			}
-		}
-	}
-
-	Column {
-		id: outputsColumn
 		anchors.right: parent.right
 		anchors.top: header.bottom
-		anchors.topMargin: root.socketsTopPadding
-		width: parent.width / 2 - 4
+		anchors.topMargin: root.rowsTopPadding
 
 		Repeater {
 			model: root.nodeOutputs
 
-			delegate: SocketRow {
-				width: outputsColumn.width
-				height: root.socketPitch
+			delegate: NodeRow {
+				width: rows.width
+				height: root.rowPitch
 				dotSize: root.socketDotSize
 				hitWidth: root.socketHitWidth
-				isOutput: true
+				kind: "output"
 
-				onPressed: (mouseArea, mouse) => root.wireDragStarted(root.nodeId, modelData.id, true, mouseArea, mouse)
-				onMoved: (mouseArea, mouse) => root.wireDragMoved(mouseArea, mouse)
-				onReleased: (mouseArea, mouse) => root.wireDragEnded(mouseArea, mouse)
+				onSocketPressed: (mouseArea, mouse) => root.wireDragStarted(root.nodeId, modelData.id, true, mouseArea, mouse)
+				onSocketMoved: (mouseArea, mouse) => root.wireDragMoved(mouseArea, mouse)
+				onSocketReleased: (mouseArea, mouse) => root.wireDragEnded(mouseArea, mouse)
+			}
+		}
+
+		Repeater {
+			model: root.nodeSettings
+
+			delegate: NodeRow {
+				width: rows.width
+				height: root.rowPitch
+				kind: "setting"
+				value: root.valueOf(modelData.id)
+
+				onValueEdited: (value) => root.valueEdited(root.nodeId, modelData.id, value)
+				onEditingDone: root.editingDone()
+			}
+		}
+
+		Repeater {
+			model: root.nodeInputs
+
+			delegate: NodeRow {
+				width: rows.width
+				height: root.rowPitch
+				dotSize: root.socketDotSize
+				hitWidth: root.socketHitWidth
+				kind: "input"
+				connected: root.connectedInputIds.indexOf(modelData.id) !== -1
+				value: root.valueOf(modelData.id)
+
+				onSocketPressed: (mouseArea, mouse) => root.wireDragStarted(root.nodeId, modelData.id, false, mouseArea, mouse)
+				onSocketMoved: (mouseArea, mouse) => root.wireDragMoved(mouseArea, mouse)
+				onSocketReleased: (mouseArea, mouse) => root.wireDragEnded(mouseArea, mouse)
+				onSocketRightClicked: root.disconnectSocketRequested(root.nodeId, modelData.id)
+				onValueEdited: (value) => root.valueEdited(root.nodeId, modelData.id, value)
+				onEditingDone: root.editingDone()
 			}
 		}
 	}

@@ -1,0 +1,12 @@
+{
+    "id": "constant_int",
+    "title": "Constant Int",
+    "description": "Emits an integer literal value",
+    "settings": [
+        { "id": "value", "name": "Value", "type": "int32",
+          "widget": { "kind": "number", "default": 0 } }
+    ],
+    "outputs": [
+        { "id": "value", "name": "Value", "type": "int32" }
+    ]
+}

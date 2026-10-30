@@ -4,8 +4,8 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import "SocketTypes.js" as SocketTypes
 
-// The node editor canvas: grid, wires, nodes, navigation, selection and the
-// Shift+A add-node popup.
+// The node editor canvas: grid, wires, nodes, navigation, selection,
+// clipboard and the Shift+A add-node popup.
 //
 // Coordinates: nodes live in "world" coordinates (what the model stores).
 // The visible "screen" position is  screen = pan + world * zoom.
@@ -16,6 +16,8 @@ Item {
 	property real panX: 0
 	property real panY: 0
 	property real zoomFactor: 1.0
+	readonly property real minZoom: 0.25
+	readonly property real maxZoom: 3.0
 
 	// Last known mouse position in screen coordinates.
 	property real mouseCanvasX: 0
@@ -29,42 +31,18 @@ Item {
 
 	readonly property int nodeCount: nodeRepeater.count
 
+	// The node shown in the inspector: only when exactly one is selected.
+	readonly property var inspectedNode: selectedNodeIds.length === 1
+		? findNodeDelegate(selectedNodeIds[0]) : null
+
 	// Cached copy of the model's connections; bindings that read it update
 	// automatically when connections change.
 	readonly property var connections: graphModel ? graphModel.connections : []
 
 	// How close (in screen pixels) the cursor must be to a socket to snap.
 	readonly property real snapRadiusPx: 28
-
-	// -- Wire dragging state ----------------------------------------------
-	// A drag always has one fixed end (the anchor socket) and one end that
-	// follows the cursor. When fromOutput is true the anchor is an output and
-	// we look for inputs to snap to; otherwise the reverse.
-	QtObject {
-		id: dragWire
-		property bool active: false
-		property bool fromOutput: true
-		property string anchorNodeId: ""
-		property string anchorSocketId: ""
-		property string dataType: ""
-		property real anchorWorldX: 0
-		property real anchorWorldY: 0
-		property real cursorWorldX: 0
-		property real cursorWorldY: 0
-
-		// Set when an existing wire was picked up from an input. That wire is
-		// hidden while dragging and replaced (or deleted) on release.
-		property string detachedConnectionId: ""
-		property string detachedNodeId: ""
-		property string detachedSocketId: ""
-
-		// Socket currently snapped to, if any.
-		property bool snapped: false
-		property string snapNodeId: ""
-		property string snapSocketId: ""
-		property real snapWorldX: 0
-		property real snapWorldY: 0
-	}
+	// Mouse movement (screen pixels) before a press on a node becomes a drag.
+	readonly property real dragThresholdPx: 3
 
 	// -- Coordinate helpers -----------------------------------------------
 
@@ -113,7 +91,72 @@ Item {
 		return null
 	}
 
+	// -- View -------------------------------------------------------------
+
+	function resetView() {
+		root.zoomFactor = 1.0
+		root.panX = 0
+		root.panY = 0
+	}
+
+	// Zoom and pan so every node is visible. Zoom is clamped, so a very large
+	// graph is centered at minimum zoom rather than shrunk to nothing.
+	function frameAll() {
+		if (nodeRepeater.count === 0) {
+			resetView()
+			return
+		}
+
+		var left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity
+		for (var i = 0; i < nodeRepeater.count; i++) {
+			var d = nodeRepeater.itemAt(i)
+			if (!d)
+				continue
+			left = Math.min(left, d.x)
+			top = Math.min(top, d.y)
+			right = Math.max(right, d.x + d.width)
+			bottom = Math.max(bottom, d.y + d.height)
+		}
+
+		var padding = 60
+		var zoom = Math.min((root.width - 2 * padding) / (right - left),
+			(root.height - 2 * padding) / (bottom - top))
+		zoom = Math.max(root.minZoom, Math.min(1.5, zoom))
+
+		root.zoomFactor = zoom
+		root.panX = root.width / 2 - (left + right) / 2 * zoom
+		root.panY = root.height / 2 - (top + bottom) / 2 * zoom
+	}
+
 	// -- Wire dragging ----------------------------------------------------
+	// A drag always has one fixed end (the anchor socket) and one end that
+	// follows the cursor. When fromOutput is true the anchor is an output and
+	// we look for inputs to snap to; otherwise the reverse.
+	QtObject {
+		id: dragWire
+		property bool active: false
+		property bool fromOutput: true
+		property string anchorNodeId: ""
+		property string anchorSocketId: ""
+		property string dataType: ""
+		property real anchorWorldX: 0
+		property real anchorWorldY: 0
+		property real cursorWorldX: 0
+		property real cursorWorldY: 0
+
+		// Set when an existing wire was picked up from an input. That wire is
+		// hidden while dragging and replaced (or deleted) on release.
+		property string detachedConnectionId: ""
+		property string detachedNodeId: ""
+		property string detachedSocketId: ""
+
+		// Socket currently snapped to, if any.
+		property bool snapped: false
+		property string snapNodeId: ""
+		property string snapSocketId: ""
+		property real snapWorldX: 0
+		property real snapWorldY: 0
+	}
 
 	// Pressing an output starts a new wire. Pressing an unconnected input
 	// starts a wire backwards (towards an output). Pressing a connected input
@@ -196,26 +239,30 @@ Item {
 		if (!dragWire.active)
 			return
 
-		var snappedBackToOrigin = dragWire.detachedConnectionId !== ""
-			&& dragWire.snapped
+		var source, sourcePort, target, targetPort
+		if (dragWire.snapped) {
+			source = dragWire.fromOutput ? dragWire.anchorNodeId : dragWire.snapNodeId
+			sourcePort = dragWire.fromOutput ? dragWire.anchorSocketId : dragWire.snapSocketId
+			target = dragWire.fromOutput ? dragWire.snapNodeId : dragWire.anchorNodeId
+			targetPort = dragWire.fromOutput ? dragWire.snapSocketId : dragWire.anchorSocketId
+		}
+
+		var detachedId = dragWire.detachedConnectionId
+		var backToOrigin = detachedId !== "" && dragWire.snapped
 			&& dragWire.snapNodeId === dragWire.detachedNodeId
 			&& dragWire.snapSocketId === dragWire.detachedSocketId
 
-		if (!snappedBackToOrigin) {
-			if (dragWire.detachedConnectionId !== "")
-				graphModel.removeConnection(dragWire.detachedConnectionId)
-
-			if (dragWire.snapped) {
-				if (dragWire.fromOutput)
-					graphModel.addConnection(dragWire.anchorNodeId, dragWire.anchorSocketId,
-						dragWire.snapNodeId, dragWire.snapSocketId)
-				else
-					graphModel.addConnection(dragWire.snapNodeId, dragWire.snapSocketId,
-						dragWire.anchorNodeId, dragWire.anchorSocketId)
-			}
-		}
-
 		endWireDrag()
+
+		// Each of these is a single undo step.
+		if (backToOrigin)
+			return
+		if (detachedId !== "" && source)
+			graphModel.rerouteConnection(detachedId, source, sourcePort, target, targetPort)
+		else if (detachedId !== "")
+			graphModel.removeConnection(detachedId)
+		else if (source)
+			graphModel.addConnection(source, sourcePort, target, targetPort)
 	}
 
 	// Abort without changing the graph (Escape).
@@ -247,6 +294,7 @@ Item {
 
 	// Nearest socket on the opposite side that the model would accept,
 	// within the snap radius. Incompatible sockets are ignored entirely.
+	// The anchor's own node is included: feedback loops are allowed.
 	function findSnapTarget(worldX, worldY) {
 		var best = null
 		var bestDist = root.snapRadiusPx / root.zoomFactor
@@ -254,7 +302,7 @@ Item {
 
 		for (var i = 0; i < nodeRepeater.count; i++) {
 			var delegate = nodeRepeater.itemAt(i)
-			if (!delegate || delegate.nodeId === dragWire.anchorNodeId)
+			if (!delegate)
 				continue
 
 			var sockets = lookForOutputs ? delegate.nodeOutputs : delegate.nodeInputs
@@ -280,21 +328,193 @@ Item {
 		return best
 	}
 
+	// -- Selection and moving nodes ---------------------------------------
+
+	function clearSelection() {
+		selectedNodeIds = []
+		forceActiveFocus()
+	}
+
+	// Drop ids of nodes that no longer exist (after delete, undo, open...).
+	function pruneSelection() {
+		var kept = selectedNodeIds.filter(function(id) { return graphModel.hasNode(id) })
+		if (kept.length !== selectedNodeIds.length)
+			selectedNodeIds = kept
+	}
+
+	// Press on a node: select it (unless already selected) and get ready to
+	// move the whole selection. Ctrl+click toggles instead.
+	QtObject {
+		id: nodeMove
+		property string pressedNodeId: ""
+		property bool ctrl: false
+		property bool wasSelected: false
+		property bool moving: false
+		property real startScreenX: 0
+		property real startScreenY: 0
+		property var items: []      // [{delegate, x, y}] start positions of moved nodes
+	}
+
+	function nodePressed(nodeId, ctrl, mouseArea, mouse) {
+		forceActiveFocus()
+		var p = mouseArea.mapToItem(root, mouse.x, mouse.y)
+		nodeMove.pressedNodeId = nodeId
+		nodeMove.ctrl = ctrl
+		nodeMove.wasSelected = selectedNodeIds.indexOf(nodeId) !== -1
+		nodeMove.moving = false
+		nodeMove.startScreenX = p.x
+		nodeMove.startScreenY = p.y
+
+		if (!ctrl && !nodeMove.wasSelected)
+			selectedNodeIds = [nodeId]
+
+		var items = []
+		if (!ctrl) {
+			for (var i = 0; i < selectedNodeIds.length; i++) {
+				var d = findNodeDelegate(selectedNodeIds[i])
+				if (d)
+					items.push({ delegate: d, x: d.x, y: d.y })
+			}
+		}
+		nodeMove.items = items
+	}
+
+	function nodeDragged(mouseArea, mouse) {
+		if (nodeMove.items.length === 0)
+			return
+		var p = mouseArea.mapToItem(root, mouse.x, mouse.y)
+		var dxScreen = p.x - nodeMove.startScreenX
+		var dyScreen = p.y - nodeMove.startScreenY
+		if (!nodeMove.moving && Math.hypot(dxScreen, dyScreen) < root.dragThresholdPx)
+			return
+		nodeMove.moving = true
+
+		// Move the delegates directly for smooth feedback; the model is
+		// updated once on release (one undo step for the whole move).
+		for (var i = 0; i < nodeMove.items.length; i++) {
+			var it = nodeMove.items[i]
+			it.delegate.x = it.x + dxScreen / root.zoomFactor
+			it.delegate.y = it.y + dyScreen / root.zoomFactor
+		}
+	}
+
+	function nodeReleased() {
+		if (nodeMove.moving) {
+			var moves = nodeMove.items.map(function(it) {
+				return { id: it.delegate.nodeId, x: it.delegate.x, y: it.delegate.y }
+			})
+			graphModel.moveNodes(moves)
+		} else if (nodeMove.ctrl) {
+			var next = selectedNodeIds.slice()
+			var index = next.indexOf(nodeMove.pressedNodeId)
+			if (index !== -1)
+				next.splice(index, 1)
+			else
+				next.push(nodeMove.pressedNodeId)
+			selectedNodeIds = next
+		} else if (nodeMove.wasSelected) {
+			// Plain click inside a multi-selection selects just that node.
+			selectedNodeIds = [nodeMove.pressedNodeId]
+		}
+		nodeMove.items = []
+		nodeMove.moving = false
+	}
+
+	// Shift + left-drag on empty canvas draws a selection box (screen coords).
+	// Nodes touching the box are added to the selection.
+	QtObject {
+		id: boxSelect
+		property bool active: false
+		property real startX: 0
+		property real startY: 0
+		property real endX: 0
+		property real endY: 0
+	}
+
+	function finishBoxSelect() {
+		var x1 = (Math.min(boxSelect.startX, boxSelect.endX) - root.panX) / root.zoomFactor
+		var y1 = (Math.min(boxSelect.startY, boxSelect.endY) - root.panY) / root.zoomFactor
+		var x2 = (Math.max(boxSelect.startX, boxSelect.endX) - root.panX) / root.zoomFactor
+		var y2 = (Math.max(boxSelect.startY, boxSelect.endY) - root.panY) / root.zoomFactor
+
+		var next = selectedNodeIds.slice()
+		for (var i = 0; i < nodeRepeater.count; i++) {
+			var d = nodeRepeater.itemAt(i)
+			var touches = d && d.x < x2 && d.x + d.width > x1 && d.y < y2 && d.y + d.height > y1
+			if (touches && next.indexOf(d.nodeId) === -1)
+				next.push(d.nodeId)
+		}
+		selectedNodeIds = next
+		boxSelect.active = false
+	}
+
+	function deleteSelectedNodes() {
+		var ids = selectedNodeIds.slice()
+		selectedNodeIds = []
+		graphModel.removeNodes(ids)
+	}
+
+	// -- Clipboard --------------------------------------------------------
+
+	function mouseWorldX() { return (root.mouseCanvasX - root.panX) / root.zoomFactor }
+	function mouseWorldY() { return (root.mouseCanvasY - root.panY) / root.zoomFactor }
+
+	function copySelection() {
+		graphModel.copyNodes(selectedNodeIds)
+	}
+
+	// Pastes at the mouse cursor and selects the pasted nodes.
+	function paste() {
+		var ids = graphModel.pasteNodes(mouseWorldX(), mouseWorldY())
+		if (ids.length > 0)
+			selectedNodeIds = ids
+	}
+
+	function duplicateSelection() {
+		var ids = graphModel.duplicateNodes(selectedNodeIds, 30, 30)
+		if (ids.length > 0)
+			selectedNodeIds = ids
+	}
+
+	Shortcut { sequence: "Ctrl+C"; onActivated: root.copySelection() }
+	Shortcut { sequence: "Ctrl+V"; onActivated: root.paste() }
+	Shortcut { sequence: "Ctrl+D"; onActivated: root.duplicateSelection() }
+	Shortcut { sequence: "Home"; onActivated: root.frameAll() }
+
 	// -- Drawing ----------------------------------------------------------
 
 	// Draws a wire from an output (x1, y1) to an input (x2, y2), in screen
 	// coordinates. Wires leave outputs to the right and enter inputs from the left.
-	function drawWire(ctx, x1, y1, x2, y2, color, dashed) {
-		var offset = Math.max(Math.abs(x2 - x1) * 0.5, 40 * root.zoomFactor)
+	// If loopY is given and the input is left of the output (a feedback wire),
+	// the wire is routed below the nodes at loopY instead of behind them.
+	function drawWire(ctx, x1, y1, x2, y2, color, dashed, loopY) {
 		ctx.strokeStyle = color
 		ctx.lineWidth = Math.max(2.0, 3.0 * root.zoomFactor)
 		ctx.lineCap = "round"
 		ctx.setLineDash(dashed ? [6, 4] : [])
 		ctx.beginPath()
 		ctx.moveTo(x1, y1)
-		ctx.bezierCurveTo(x1 + offset, y1, x2 - offset, y2, x2, y2)
+
+		if (loopY !== undefined && x2 < x1) {
+			var r = 40 * root.zoomFactor
+			ctx.bezierCurveTo(x1 + r, y1, x1 + r, loopY, x1, loopY)
+			ctx.lineTo(x2, loopY)
+			ctx.bezierCurveTo(x2 - r, loopY, x2 - r, y2, x2, y2)
+		} else {
+			var offset = Math.max(Math.abs(x2 - x1) * 0.5, 40 * root.zoomFactor)
+			ctx.bezierCurveTo(x1 + offset, y1, x2 - offset, y2, x2, y2)
+		}
+
 		ctx.stroke()
 		ctx.setLineDash([])
+	}
+
+	// Screen y just below the lower of two nodes, for routing feedback wires.
+	function loopYBelow(nodeIdA, nodeIdB) {
+		var a = findNodeDelegate(nodeIdA)
+		var b = findNodeDelegate(nodeIdB)
+		var bottom = Math.max(a ? a.y + a.height : 0, b ? b.y + b.height : 0)
+		return root.toScreenY(bottom + 20)
 	}
 
 	function repaintAll() {
@@ -309,32 +529,13 @@ Item {
 	onZoomFactorChanged: repaintAll()
 	onConnectionsChanged: connectionsCanvas.requestPaint()
 
-	// -- Selection --------------------------------------------------------
-
-	// Plain click selects only this node (or deselects it if it was the
-	// only selection). Ctrl+click toggles it in the selection.
-	function selectNode(nodeId, additive) {
-		var next = selectedNodeIds.slice()
-		var index = next.indexOf(nodeId)
-
-		if (additive) {
-			if (index !== -1)
-				next.splice(index, 1)
-			else
-				next.push(nodeId)
-		} else {
-			next = (next.length === 1 && index !== -1) ? [] : [nodeId]
+	Connections {
+		target: graphModel
+		function onModelReset() {
+			root.pruneSelection()
+			connectionsCanvas.requestPaint()
 		}
-
-		selectedNodeIds = next
-		forceActiveFocus()
-	}
-
-	function deleteSelectedNodes() {
-		var ids = selectedNodeIds.slice()
-		selectedNodeIds = []
-		for (var i = 0; i < ids.length; i++)
-			graphModel.removeNode(ids[i])
+		function onRowsRemoved() { root.pruneSelection() }
 	}
 
 	// -- Keyboard ---------------------------------------------------------
@@ -369,9 +570,11 @@ Item {
 
 	// Creates the node at the popup's position.
 	function addNodeFromPopup(typeId) {
-		graphModel.addNode(typeId,
+		var id = graphModel.addNode(typeId,
 			(root.popupX - root.panX) / root.zoomFactor,
 			(root.popupY - root.panY) / root.zoomFactor)
+		if (id)
+			selectedNodeIds = [id]
 		closeAddNodePopup()
 	}
 
@@ -462,17 +665,22 @@ Item {
 				root.drawWire(ctx,
 					root.toScreenX(src.x), root.toScreenY(src.y),
 					root.toScreenX(tgt.x), root.toScreenY(tgt.y),
-					SocketTypes.color(conn.dataType), false)
+					SocketTypes.color(conn.dataType), false,
+					root.loopYBelow(conn.sourceNode, conn.targetNode))
 			}
 		}
 	}
 
-	// Right-drag pans, wheel zooms around the cursor. Sits below the nodes,
-	// so it only receives events on empty canvas.
+	// Mouse on empty canvas (sits below the nodes, so it only gets presses
+	// that no node took):
+	//   left click          deselect all
+	//   Shift + left-drag   box select
+	//   right-drag          pan
+	//   wheel               zoom around the cursor
 	MouseArea {
-		id: navigationMouse
+		id: canvasMouse
 		anchors.fill: parent
-		acceptedButtons: Qt.RightButton
+		acceptedButtons: Qt.LeftButton | Qt.RightButton
 		hoverEnabled: true
 
 		property real lastX: 0
@@ -481,25 +689,43 @@ Item {
 		onPressed: function(mouse) {
 			lastX = mouse.x
 			lastY = mouse.y
+			if (mouse.button === Qt.LeftButton && (mouse.modifiers & Qt.ShiftModifier)) {
+				boxSelect.startX = mouse.x
+				boxSelect.startY = mouse.y
+				boxSelect.endX = mouse.x
+				boxSelect.endY = mouse.y
+				boxSelect.active = true
+			}
 		}
 
 		onPositionChanged: function(mouse) {
 			root.mouseCanvasX = mouse.x
 			root.mouseCanvasY = mouse.y
 
-			if (!(mouse.buttons & Qt.RightButton))
-				return
+			if (boxSelect.active) {
+				boxSelect.endX = mouse.x
+				boxSelect.endY = mouse.y
+			} else if (mouse.buttons & Qt.RightButton) {
+				root.panX += mouse.x - lastX
+				root.panY += mouse.y - lastY
+				lastX = mouse.x
+				lastY = mouse.y
+			}
+		}
 
-			root.panX += mouse.x - lastX
-			root.panY += mouse.y - lastY
-			lastX = mouse.x
-			lastY = mouse.y
+		onReleased: function(mouse) {
+			if (mouse.button !== Qt.LeftButton)
+				return
+			if (boxSelect.active)
+				root.finishBoxSelect()
+			else
+				root.clearSelection()
 		}
 
 		onWheel: function(wheel) {
 			var oldZoom = root.zoomFactor
 			var factor = wheel.angleDelta.y > 0 ? 1.1 : 1 / 1.1
-			var newZoom = Math.max(0.25, Math.min(3.0, oldZoom * factor))
+			var newZoom = Math.max(root.minZoom, Math.min(root.maxZoom, oldZoom * factor))
 
 			// Keep the world point under the cursor fixed while zooming.
 			var worldX = (wheel.x - root.panX) / oldZoom
@@ -540,6 +766,8 @@ Item {
 				required property real nodeY
 				required property var nodeInputs
 				required property var nodeOutputs
+				required property var nodeSettings
+				required property var nodeValues
 
 				readonly property Node node: nodeItem
 				readonly property bool isSelected: root.selectedNodeIds.indexOf(nodeId) !== -1
@@ -547,7 +775,7 @@ Item {
 				width: nodeItem.implicitWidth
 				height: nodeItem.implicitHeight
 
-				// Dragging a node assigns x/y directly, which breaks a plain
+				// Moving a node assigns x/y directly, which breaks a plain
 				// binding to nodeX/nodeY. These handlers keep following the
 				// model whenever it changes.
 				x: nodeX
@@ -557,6 +785,7 @@ Item {
 
 				onXChanged: connectionsCanvas.requestPaint()
 				onYChanged: connectionsCanvas.requestPaint()
+				onHeightChanged: connectionsCanvas.requestPaint()
 
 				Node {
 					id: nodeItem
@@ -567,14 +796,20 @@ Item {
 					title: nodeDelegate.title
 					nodeInputs: nodeDelegate.nodeInputs
 					nodeOutputs: nodeDelegate.nodeOutputs
+					nodeSettings: nodeDelegate.nodeSettings
+					nodeValues: nodeDelegate.nodeValues
 					connectedInputIds: root.connectedInputIdsFor(nodeDelegate.nodeId)
 					selected: nodeDelegate.isSelected
 
-					onSelectionRequested: (id, additive) => root.selectNode(id, additive)
+					onBodyPressed: (id, ctrl, mouseArea, mouse) => root.nodePressed(id, ctrl, mouseArea, mouse)
+					onBodyMoved: (mouseArea, mouse) => root.nodeDragged(mouseArea, mouse)
+					onBodyReleased: root.nodeReleased()
 					onWireDragStarted: (nId, sId, isOutput) => root.startWireDrag(nId, sId, isOutput)
 					onWireDragMoved: (mouseArea, mouse) => root.updateWireDrag(mouseArea, mouse)
 					onWireDragEnded: () => root.finishWireDrag()
 					onDisconnectSocketRequested: (nId, sId) => graphModel.disconnectInput(nId, sId)
+					onValueEdited: (nId, key, value) => graphModel.setNodeValue(nId, key, value)
+					onEditingDone: root.forceActiveFocus()
 				}
 			}
 		}
@@ -611,6 +846,18 @@ Item {
 				ctx.fill()
 			}
 		}
+	}
+
+	// Selection box
+	Rectangle {
+		visible: boxSelect.active
+		x: Math.min(boxSelect.startX, boxSelect.endX)
+		y: Math.min(boxSelect.startY, boxSelect.endY)
+		width: Math.abs(boxSelect.endX - boxSelect.startX)
+		height: Math.abs(boxSelect.endY - boxSelect.startY)
+		color: "#1a72a7ff"
+		border.color: "#72a7ff"
+		border.width: 1
 	}
 
 	// Add-node popup (on top of everything)

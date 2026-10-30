@@ -1,0 +1,13 @@
+{
+    "id": "safety_gate",
+    "title": "Safety Gate",
+    "description": "Passes velocity when active is true; stops when false",
+    "inputs": [
+        { "id": "active", "name": "Active", "type": "bool",
+          "widget": { "kind": "checkbox", "default": true } },
+        { "id": "speed_in", "name": "Speed In", "type": "int32" }
+    ],
+    "outputs": [
+        { "id": "speed_out", "name": "Speed Out", "type": "int32" }
+    ]
+}

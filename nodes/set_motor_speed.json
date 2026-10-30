@@ -1,0 +1,9 @@
+{
+    "id": "set_motor_speed",
+    "title": "Set Motor Speed",
+    "description": "Commands velocity setpoint to the drive controller",
+    "inputs": [
+        { "id": "speed", "name": "Speed", "type": "int32",
+          "widget": { "kind": "number", "default": 0 } }
+    ]
+}

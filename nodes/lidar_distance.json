@@ -1,0 +1,13 @@
+{
+    "id": "lidar_distance",
+    "title": "LiDAR Distance",
+    "description": "Extracts radial distance at a specific bearing angle",
+    "inputs": [
+        { "id": "scan", "name": "Scan", "type": "LidarScan" },
+        { "id": "angle", "name": "Angle", "type": "int32",
+          "widget": { "kind": "number", "default": 0, "min": 0, "max": 359 } }
+    ],
+    "outputs": [
+        { "id": "distance", "name": "Distance", "type": "int32" }
+    ]
+}

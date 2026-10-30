@@ -1,0 +1,12 @@
+{
+    "id": "add",
+    "title": "Add",
+    "description": "Adds A and B",
+    "inputs": [
+        { "id": "a", "name": "A", "type": "int32", "widget": { "kind": "number", "default": 0 } },
+        { "id": "b", "name": "B", "type": "int32", "widget": { "kind": "number", "default": 0 } }
+    ],
+    "outputs": [
+        { "id": "result", "name": "Result", "type": "int32" }
+    ]
+}

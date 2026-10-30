@@ -1,0 +1,12 @@
+{
+    "id": "read_lidar",
+    "title": "Read LiDAR",
+    "description": "Produces raw LiDAR range scan frames",
+    "settings": [
+        { "id": "frequency", "name": "Frequency (Hz)", "type": "float32",
+          "widget": { "kind": "number", "default": 10, "min": 1, "max": 100 } }
+    ],
+    "outputs": [
+        { "id": "scan", "name": "Scan", "type": "LidarScan" }
+    ]
+}

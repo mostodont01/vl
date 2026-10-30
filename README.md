@@ -1,12 +1,16 @@
 # VL — Visual Language
 
-VL is a visual programming language for programming a RoboCars competition
-robot. Programs are built as dataflow graphs, similar to Blender's node
-editor: nodes have typed inputs and outputs connected by wires, and
-incompatible types (e.g. `LidarScan` to `int32`) can't be connected.
+VL is a visual dataflow programming language. Programs are built as node
+graphs, similar to Blender's node editor: nodes have typed inputs and outputs
+connected by wires, and incompatible types (e.g. `LidarScan` to `int32`)
+can't be connected.
 
 VL is a visual front end for a compiler, not a runtime: the goal is to
-translate the graph into C++ that runs on the robot.
+translate the graph into C++ (or another compiled language) that runs on the
+target hardware.
+
+VL started as a way to program a RoboCars competition robot, so its first
+nodes are robotics-oriented, but the language isn't tied to it.
 
 Built with Python, PySide6 and Qt Quick (QML). Linux-first.
 
@@ -26,21 +30,46 @@ If creating the virtual environment fails because Ubuntu manages Python packages
 
 ## Current state
 
-Early node editor front end. VL is a visual front end for a compiler: the graph
-will eventually be translated to C++, not run inside the app.
+Early node editor front end.
 
-- Typed nodes and sockets; only wires between matching types are allowed
-- Shift+A to add nodes, drag the header to move, Ctrl+click to multi-select, Delete to remove
-- Drag from any socket to create a wire; drag a wire off an input to move or delete it
-- Right-click an input to disconnect it, right-drag to pan, wheel to zoom
+- Typed nodes and sockets; only wires between matching types are allowed.
+  Feedback loops (including a node feeding itself) are allowed.
+- Nodes are defined in JSON files in `nodes/` (see `nodes/README.md`), including
+  inline fields shown on unconnected inputs and node settings
+- Projects are saved as `.vl` files; startup screen with recent projects
+- Undo/redo for adding, deleting, moving, connecting and editing values
+
+### Controls
+
+| Action | Input |
+|---|---|
+| Add node | Shift+A |
+| Select / move | Click / drag a node |
+| Toggle in selection | Ctrl+click |
+| Box select | Shift+drag on empty canvas |
+| Deselect all | Click empty canvas |
+| Delete selected | Delete / Backspace |
+| Copy / paste / duplicate | Ctrl+C / Ctrl+V / Ctrl+D |
+| Undo / redo | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y |
+| New / open / save / save as | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |
+| Connect | Drag from any socket to a compatible one |
+| Move or delete a wire | Drag it off its input; drop on empty canvas to delete |
+| Disconnect input | Right-click the input |
+| Pan / zoom | Right-drag / mouse wheel |
+| Frame all | Home, or the Frame All button |
 
 ## Structure
 
-- `main.py` — starts the Qt application, seeds a demo graph and loads QML
-- `graph_model.py` — node catalog, node instances and typed connections
-- `ui/Main.qml` — application window (toolbar, canvas, inspector)
-- `ui/components/NodeCanvas.qml` — canvas: navigation, wires, selection, add-node popup
-- `ui/components/Node.qml` — a single node and its sockets
+- `main.py` — starts the app: loads the node catalog and QML
+- `node_catalog.py` — loads and validates the node JSON files
+- `graph_model.py` — nodes, values, typed connections, undo/redo, clipboard
+- `project.py` — project files, unsaved-changes tracking, recent projects
+- `nodes/` — one JSON file per node type
+- `ui/Main.qml` — application window: toolbar, File menu, inspector, startup popup, dialogs
+- `ui/components/NodeCanvas.qml` — canvas: navigation, wires, selection, clipboard, add-node popup
+- `ui/components/Node.qml` — a single node and its rows
+- `ui/components/ValueWidget.qml` — inline value editors (number, string, select, checkbox)
+- `ui/components/ShortcutMenuItem.qml` — menu item with a shortcut hint
 - `ui/components/SocketTypes.js` — shared colours for socket data types
 - `requirements.txt` — Python dependency
 

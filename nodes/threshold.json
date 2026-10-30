@@ -1,0 +1,17 @@
+{
+    "id": "threshold",
+    "title": "Threshold",
+    "description": "Compares value against threshold",
+    "settings": [
+        { "id": "comparison", "name": "Comparison", "type": "string",
+          "widget": { "kind": "select", "options": [">=", ">", "<=", "<", "=="], "default": ">=" } }
+    ],
+    "inputs": [
+        { "id": "value", "name": "Value", "type": "int32" },
+        { "id": "threshold", "name": "Threshold", "type": "int32",
+          "widget": { "kind": "number", "default": 0 } }
+    ],
+    "outputs": [
+        { "id": "result", "name": "Result", "type": "bool" }
+    ]
+}
