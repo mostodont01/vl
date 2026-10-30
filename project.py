@@ -6,7 +6,8 @@ A project file (*.vl) is JSON:
         "format": "vl-project",
         "version": 1,
         "nodes": [{"id", "type", "x", "y", "values"}, ...],
-        "connections": [{"source_node", "source_socket", "target_node", "target_socket"}, ...]
+        "connections": [{"source_node", "source_socket", "target_node", "target_socket"}, ...],
+        "compile": {"language", "target", "build_type", "output_dir", "executable_name", "fullscreen"}
     }
 """
 
@@ -17,6 +18,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, QUrl, Property, Signal, Slot
 
+import compiler
 from graph_model import GraphModel
 
 FILE_FORMAT = "vl-project"
@@ -35,6 +37,7 @@ def _to_path(location: str) -> Path:
 class Project(QObject):
     stateChanged = Signal()     # file path or dirty flag changed
     recentChanged = Signal()
+    compileSettingsChanged = Signal()
     # Something the user should be told about: (title, text).
     messageRaised = Signal(str, str)
 
@@ -44,6 +47,7 @@ class Project(QObject):
         self._path: Path | None = None
         self._settings = QSettings("VL", "VL")
         self._recent: list[str] = self._load_recent()
+        self._compile_settings = dict(compiler.DEFAULT_SETTINGS)
         self._dirty = False
         self._saved_key = self._state_key()
         graph.graphChanged.connect(self._update_dirty)
@@ -51,7 +55,16 @@ class Project(QObject):
     # -- Unsaved-changes tracking -------------------------------------------
 
     def _state_key(self) -> str:
-        return json.dumps(self._graph.to_dict(), sort_keys=True)
+        return json.dumps(self._to_dict(), sort_keys=True)
+
+    def _to_dict(self) -> dict[str, Any]:
+        """Everything that is saved in the project file."""
+        return {
+            "format": FILE_FORMAT,
+            "version": FILE_VERSION,
+            **self._graph.to_dict(),
+            "compile": self._compile_settings,
+        }
 
     def _mark_saved(self):
         self._saved_key = self._state_key()
@@ -83,6 +96,26 @@ class Project(QObject):
     def displayName(self) -> str:
         return self._path.stem if self._path else "Untitled"
 
+    @Property("QVariantMap", notify=compileSettingsChanged)
+    def compileSettings(self) -> dict[str, Any]:
+        return dict(self._compile_settings)
+
+    @Property("QVariantMap", constant=True)
+    def compileChoices(self) -> dict[str, list[dict[str, str]]]:
+        """Options for the Compile popup's drop-downs: {setting: [{value, label}]}."""
+        def entries(pairs):
+            return [{"value": v, "label": label} for v, label in pairs]
+        return {
+            "language": entries(compiler.LANGUAGES),
+            "target": entries(compiler.TARGETS),
+            "build_type": entries(compiler.BUILD_TYPES),
+        }
+
+    @Property(str, notify=stateChanged)
+    def defaultOutputDir(self) -> str:
+        """Where builds go when no output folder is chosen ("" if the project isn't saved)."""
+        return str(self._path.parent / "build") if self._path else ""
+
     @Property("QVariantList", notify=recentChanged)
     def recentProjects(self) -> list[dict[str, Any]]:
         return [
@@ -95,6 +128,7 @@ class Project(QObject):
     @Slot()
     def newProject(self):
         self._graph.clear()
+        self._set_compile_settings(dict(compiler.DEFAULT_SETTINGS))
         self._set_path(None)
         self._mark_saved()
 
@@ -125,6 +159,7 @@ class Project(QObject):
             return False
 
         warnings = self._graph.load_dict(data)
+        self._set_compile_settings(compiler.load_settings(data.get("compile")))
         self._set_path(path)
         self._mark_saved()
         self._add_recent(path)
@@ -154,6 +189,32 @@ class Project(QObject):
         self._add_recent(path)
         return True
 
+    @Slot(str, "QVariant")
+    def setCompileSetting(self, key: str, value: Any):
+        if key == "output_dir" and value:
+            value = str(_to_path(str(value)))  # Folder dialogs return file:// URLs.
+        try:
+            value = compiler.coerce_setting(key, value)
+        except ValueError as e:
+            self.messageRaised.emit("Invalid compile setting", str(e))
+            return
+        if self._compile_settings.get(key) != value:
+            self._set_compile_settings({**self._compile_settings, key: value})
+
+    @Slot(result=bool)
+    def compileProject(self) -> bool:
+        settings = self._compile_settings
+        output_dir = settings["output_dir"] or self.defaultOutputDir
+        if not output_dir:
+            self.messageRaised.emit(
+                "Choose an output folder",
+                "The project isn't saved yet, so there's no default build folder. "
+                "Save the project or pick an output folder in the Compile popup.",
+            )
+            return False
+        name = settings["executable_name"] or (self._path.stem if self._path else "app")
+        return compiler.compile_project(self._graph.to_dict(), settings, _to_path(output_dir), name)
+
     @Slot(str)
     def removeRecent(self, location: str):
         if location in self._recent:
@@ -163,7 +224,7 @@ class Project(QObject):
     # -- Internals ----------------------------------------------------------
 
     def _write(self, path: Path) -> bool:
-        data = {"format": FILE_FORMAT, "version": FILE_VERSION, **self._graph.to_dict()}
+        data = self._to_dict()
         # Write to a temporary file first, so a failed save never leaves a
         # half-written project behind.
         tmp = path.with_name(path.name + ".tmp")
@@ -176,6 +237,11 @@ class Project(QObject):
             return False
         self._mark_saved()
         return True
+
+    def _set_compile_settings(self, settings: dict[str, Any]):
+        self._compile_settings = settings
+        self.compileSettingsChanged.emit()
+        self._update_dirty()
 
     def _set_path(self, path: Path | None):
         if path != self._path:

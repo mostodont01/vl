@@ -921,9 +921,49 @@ Item {
 			expanded = next
 		}
 
+		// Keyboard selection (Up/Down from the search field). Kept separately
+		// from ListView.currentIndex, which resets whenever rows is rebuilt.
+		property int selectedRow: 0
+
+		function selectRow(index) {
+			selectedRow = Math.max(0, Math.min(rows.length - 1, index))
+			nodeListView.positionViewAtIndex(selectedRow, ListView.Contain)
+		}
+
+		// Enter: open/close the selected category, or add the selected node.
+		function activateSelected() {
+			var row = rows[selectedRow]
+			if (!row)
+				return
+			if (row.isHeader)
+				toggleCategory(row.category)
+			else
+				root.addNodeFromPopup(row.typeId)
+		}
+
+		// While searching, start on the first node rather than its header.
+		function resetSelection() {
+			var first = 0
+			if (nodeSearch.text.trim() !== "") {
+				for (var i = 0; i < rows.length; i++) {
+					if (!rows[i].isHeader) {
+						first = i
+						break
+					}
+				}
+			}
+			selectRow(first)
+		}
+
+		onRowsChanged: {
+			if (selectedRow >= rows.length)
+				selectRow(rows.length - 1)
+		}
+
 		onOpened: {
 			expanded = {}
 			nodeSearch.text = ""
+			selectRow(0)
 			nodeSearch.forceActiveFocus()
 		}
 
@@ -937,16 +977,10 @@ Item {
 				placeholderText: "Search nodes..."
 				focus: true
 
-				// Enter adds the first node shown.
-				onAccepted: {
-					var rows = addNodePopup.rows
-					for (var i = 0; i < rows.length; i++) {
-						if (!rows[i].isHeader) {
-							root.addNodeFromPopup(rows[i].typeId)
-							return
-						}
-					}
-				}
+				onTextChanged: addNodePopup.resetSelection()
+				onAccepted: addNodePopup.activateSelected()
+				Keys.onUpPressed: addNodePopup.selectRow(addNodePopup.selectedRow - 1)
+				Keys.onDownPressed: addNodePopup.selectRow(addNodePopup.selectedRow + 1)
 			}
 
 			ListView {
@@ -959,11 +993,15 @@ Item {
 				delegate: Rectangle {
 					id: row
 					required property var modelData
+					required property int index
+
+					readonly property bool selected: index === addNodePopup.selectedRow
 
 					width: ListView.view ? ListView.view.width : 0
 					height: modelData.isHeader ? 26 : 28
 					radius: 4
-					color: rowMouse.containsMouse ? "#2f343d" : "transparent"
+					color: selected ? "#2a3a55" : rowMouse.containsMouse ? "#2f343d" : "transparent"
+					border.color: selected ? "#72a7ff" : "transparent"
 
 					// Category header: arrow, name and node count
 					Row {
@@ -1010,10 +1048,9 @@ Item {
 						hoverEnabled: true
 						cursorShape: Qt.PointingHandCursor
 						onClicked: {
-							if (row.modelData.isHeader)
-								addNodePopup.toggleCategory(row.modelData.category)
-							else
-								root.addNodeFromPopup(row.modelData.typeId)
+							addNodePopup.selectedRow = row.index
+							addNodePopup.activateSelected()
+							nodeSearch.forceActiveFocus()
 						}
 					}
 				}

@@ -46,7 +46,7 @@ Early node editor front end.
 
 | Action | Input |
 |---|---|
-| Add node | Shift+A |
+| Add node | Shift+A (↑/↓ to move, Enter to open a category or add a node) |
 | Select / move | Click / drag a node |
 | Toggle in selection | Ctrl+click |
 | Box select | Shift+drag on empty canvas |
@@ -60,18 +60,22 @@ Early node editor front end.
 | Disconnect input | Right-click the input |
 | Pan / zoom | Right-drag / mouse wheel |
 | Frame all | Home, or the Frame All button |
+| Compile options | Ctrl+B, or the Compile button (Enter compiles) |
 
 ## Structure
 
 - `main.py` — starts the app: loads the node catalog and QML
 - `node_catalog.py` — loads and validates the node JSON files
 - `graph_model.py` — nodes, values, typed connections, undo/redo, clipboard
-- `project.py` — project files, unsaved-changes tracking, recent projects
+- `project.py` — project files, unsaved-changes tracking, recent projects, compile settings
+- `compiler.py` — compile options and the (not yet implemented) compiler entry point
 - `nodes/` — one JSON file per node type
 - `ui/Main.qml` — application window: toolbar, File menu, inspector, startup popup, dialogs
 - `ui/components/NodeCanvas.qml` — canvas: navigation, wires, selection, clipboard, add-node popup
 - `ui/components/Node.qml` — a single node and its rows
 - `ui/components/ValueWidget.qml` — inline value editors (number, string, select, checkbox)
+- `ui/components/CompilePopup.qml` — compile options popup
+- `ui/components/MessageBox.qml` — themed message / confirmation dialog
 - `ui/components/ShortcutMenuItem.qml` — menu item with a shortcut hint
 - `ui/components/SocketTypes.js` — shared colours for socket data types
 - `requirements.txt` — Python dependency

@@ -130,6 +130,7 @@ ApplicationWindow {
 	Shortcut { sequence: "Ctrl+S"; onActivated: window.save() }
 	Shortcut { sequence: "Ctrl+Shift+S"; onActivated: saveDialog.open() }
 	Shortcut { sequence: "Ctrl+Q"; onActivated: window.close() }
+	Shortcut { sequence: "Ctrl+B"; onActivated: compilePopup.open() }
 	Shortcut { sequence: "Ctrl+Z"; onActivated: graphModel.undo() }
 	Shortcut { sequences: ["Ctrl+Shift+Z", "Ctrl+Y"]; onActivated: graphModel.redo() }
 
@@ -177,6 +178,11 @@ ApplicationWindow {
 				window.clearPendingAction()
 			}
 		}
+	}
+
+	CompilePopup {
+		id: compilePopup
+		onCompileRequested: project.compileProject()
 	}
 
 	MessageBox {
@@ -315,8 +321,10 @@ ApplicationWindow {
 
 				Button {
 					text: "Compile"
-					enabled: false
-					opacity: enabled ? 1.0 : 0.4
+					onClicked: compilePopup.open()
+					ToolTip.visible: hovered
+					ToolTip.delay: 500
+					ToolTip.text: "Compile options (Ctrl+B)"
 				}
 			}
 		}
