@@ -6,7 +6,7 @@ into frozen dataclasses that the rest of the app uses.
 """
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,21 @@ class SettingDef:
     name: str
     type: str
     widget: WidgetDef
+    # Only relevant to the app widget (e.g. its label): hidden while the
+    # node's eye is closed.
+    app_widget_only: bool = False
+
+
+@dataclass(frozen=True)
+class AppWidgetDef:
+    """A widget this node shows in the compiled app (e.g. a number display).
+
+    Widget kinds will be a built-in library implemented by VL; for now the
+    kind and its options are only stored. The compiled app lays out all
+    visible widgets automatically.
+    """
+    kind: str
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -98,6 +113,8 @@ class NodeDef:
     outputs: tuple[SocketDef, ...]
     settings: tuple[SettingDef, ...] = ()
     description: str = ""
+    category: str = "Other"   # Group in the Shift+A menu.
+    app_widget: AppWidgetDef | None = None
 
     def value_fields(self) -> dict[str, tuple[str, WidgetDef]]:
         """Every editable value on this node: {id: (data type, widget)}."""
@@ -171,7 +188,15 @@ def _parse_setting(raw: Any, where: str) -> SettingDef:
     if "widget" not in raw:
         raise CatalogError(f"{where}: settings need a 'widget'")
     return SettingDef(id=sid, name=raw.get("name", sid), type=data_type,
-                      widget=_parse_widget(raw["widget"], data_type, where))
+                      widget=_parse_widget(raw["widget"], data_type, where),
+                      app_widget_only=raw.get("app_widget_only", False) is True)
+
+
+def _parse_app_widget(raw: Any, where: str) -> AppWidgetDef:
+    if not isinstance(raw, dict):
+        raise CatalogError(f"{where}: 'app_widget' must be an object")
+    kind = _require(raw, "kind", f"{where} app_widget")
+    return AppWidgetDef(kind=kind, options={k: v for k, v in raw.items() if k != "kind"})
 
 
 def _unique(ids: list[str], where: str):
@@ -191,6 +216,9 @@ def parse_node_definition(raw: Any, where: str) -> NodeDef:
     outputs = tuple(_parse_socket(s, f"{where} output", False) for s in raw.get("outputs", []))
     settings = tuple(_parse_setting(s, f"{where} setting") for s in raw.get("settings", []))
 
+    if "app_widget" not in raw and any(s.app_widget_only for s in settings):
+        raise CatalogError(f"{where}: 'app_widget_only' settings need the node to have an 'app_widget'")
+
     _unique([s.id for s in inputs], f"{where} inputs")
     _unique([s.id for s in outputs], f"{where} outputs")
     # Inputs and settings share the node's value storage, so their ids must not clash.
@@ -203,6 +231,8 @@ def parse_node_definition(raw: Any, where: str) -> NodeDef:
         outputs=outputs,
         settings=settings,
         description=raw.get("description", ""),
+        category=raw.get("category", "Other"),
+        app_widget=_parse_app_widget(raw["app_widget"], where) if "app_widget" in raw else None,
     )
 
 

@@ -159,19 +159,19 @@ ApplicationWindow {
 		onRejected: window.clearPendingAction()
 	}
 
-	MessageDialog {
+	MessageBox {
 		id: unsavedDialog
-		title: "Unsaved changes"
-		text: "Save changes to " + project.displayName + " before continuing?"
-		informativeText: "Your changes will be lost if you don't save them."
-		buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
+		title: "Save changes to " + project.displayName + " before continuing?"
+		text: "Your changes will be lost if you don't save them."
+		buttons: ["Cancel", "Don't Save", "Save"]
+		escapeButton: "Cancel"
 
-		onButtonClicked: function(button, role) {
-			if (button === MessageDialog.Save) {
+		onClicked: function(button) {
+			if (button === "Save") {
 				// With no file yet, the save dialog runs the pending action.
 				if (window.save())
 					window.runPendingAction()
-			} else if (button === MessageDialog.Discard) {
+			} else if (button === "Don't Save") {
 				window.runPendingAction()
 			} else {
 				window.clearPendingAction()
@@ -179,17 +179,16 @@ ApplicationWindow {
 		}
 	}
 
-	MessageDialog {
+	MessageBox {
 		id: messageDialog
-		buttons: MessageDialog.Ok
+		buttons: ["OK"]
 	}
 
 	Connections {
 		target: project
 		function onMessageRaised(title, text) {
 			messageDialog.title = title
-			messageDialog.text = title
-			messageDialog.informativeText = text
+			messageDialog.text = text
 			messageDialog.open()
 		}
 	}

@@ -1,0 +1,16 @@
+{
+    "id": "input_number",
+    "category": "Input",
+    "title": "Input Number",
+    "description": "A number the user can change while the compiled app runs",
+    "app_widget": { "kind": "number_input" },
+    "settings": [
+        { "id": "label", "name": "Label", "type": "string", "app_widget_only": true,
+          "widget": { "kind": "string", "default": "Value" } },
+        { "id": "initial", "name": "Initial", "type": "int32",
+          "widget": { "kind": "number", "default": 0 } }
+    ],
+    "outputs": [
+        { "id": "value", "name": "Value", "type": "int32" }
+    ]
+}

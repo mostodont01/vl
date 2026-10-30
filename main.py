@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QLoggingCategory, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
@@ -13,6 +13,11 @@ APP_DIR = Path(__file__).parent
 
 
 def main() -> int:
+    # Qt's Wayland text-input plugin logs a harmless warning every time a text
+    # field loses focus. Silence just that category so real output stays readable.
+    # (QT_LOGGING_RULES in the environment still overrides this.)
+    QLoggingCategory.setFilterRules("qt.qpa.wayland.textinput=false")
+
     app = QGuiApplication(sys.argv)
     app.setApplicationName("VL")
     app.setOrganizationName("VL")

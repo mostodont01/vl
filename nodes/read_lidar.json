@@ -1,5 +1,6 @@
 {
     "id": "read_lidar",
+    "category": "Sensors",
     "title": "Read LiDAR",
     "description": "Produces raw LiDAR range scan frames",
     "settings": [

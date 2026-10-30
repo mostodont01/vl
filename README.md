@@ -38,6 +38,9 @@ Early node editor front end.
   inline fields shown on unconnected inputs and node settings
 - Projects are saved as `.vl` files; startup screen with recent projects
 - Undo/redo for adding, deleting, moving, connecting and editing values
+- Nodes with an app widget have an eye toggle in their header: whether the
+  widget is shown in the compiled app (which lays widgets out automatically)
+- Shift+A menu grouped by category
 
 ### Controls
 

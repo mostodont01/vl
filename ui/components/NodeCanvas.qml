@@ -768,6 +768,8 @@ Item {
 				required property var nodeOutputs
 				required property var nodeSettings
 				required property var nodeValues
+				required property bool hasAppWidget
+				required property bool widgetVisible
 
 				readonly property Node node: nodeItem
 				readonly property bool isSelected: root.selectedNodeIds.indexOf(nodeId) !== -1
@@ -798,6 +800,8 @@ Item {
 					nodeOutputs: nodeDelegate.nodeOutputs
 					nodeSettings: nodeDelegate.nodeSettings
 					nodeValues: nodeDelegate.nodeValues
+					hasAppWidget: nodeDelegate.hasAppWidget
+					widgetVisible: nodeDelegate.widgetVisible
 					connectedInputIds: root.connectedInputIdsFor(nodeDelegate.nodeId)
 					selected: nodeDelegate.isSelected
 
@@ -810,6 +814,7 @@ Item {
 					onDisconnectSocketRequested: (nId, sId) => graphModel.disconnectInput(nId, sId)
 					onValueEdited: (nId, key, value) => graphModel.setNodeValue(nId, key, value)
 					onEditingDone: root.forceActiveFocus()
+					onWidgetVisibilityToggled: (nId) => graphModel.setWidgetVisible(nId, !nodeDelegate.widgetVisible)
 				}
 			}
 		}
@@ -867,7 +872,7 @@ Item {
 		x: root.popupX
 		y: root.popupY
 		width: 220
-		height: 320
+		height: 420
 		padding: 8
 
 		background: Rectangle {
@@ -876,7 +881,48 @@ Item {
 			border.color: "#454a54"
 		}
 
+		// Categories the user has opened (category name -> true). All start
+		// collapsed each time the popup opens.
+		property var expanded: ({})
+
+		// Rows shown in the list: a header per category, followed by its nodes
+		// when that category is open. While searching, every category with a
+		// match (in the node title or the category name) is shown open.
+		readonly property var rows: {
+			var query = nodeSearch.text.trim().toLowerCase()
+			var result = []
+			var types = graphModel.availableNodeTypes  // sorted by category, then title
+			var i = 0
+			while (i < types.length) {
+				var category = types[i].category
+				var matches = []
+				for (; i < types.length && types[i].category === category; i++) {
+					var t = types[i]
+					if (query === "" || t.title.toLowerCase().indexOf(query) !== -1
+							|| category.toLowerCase().indexOf(query) !== -1)
+						matches.push(t)
+				}
+				if (matches.length === 0)
+					continue
+
+				var open = query !== "" || addNodePopup.expanded[category] === true
+				result.push({ isHeader: true, category: category, open: open, count: matches.length })
+				if (open) {
+					for (var j = 0; j < matches.length; j++)
+						result.push({ isHeader: false, category: category, typeId: matches[j].typeId, title: matches[j].title })
+				}
+			}
+			return result
+		}
+
+		function toggleCategory(category) {
+			var next = Object.assign({}, expanded)
+			next[category] = !next[category]
+			expanded = next
+		}
+
 		onOpened: {
+			expanded = {}
 			nodeSearch.text = ""
 			nodeSearch.forceActiveFocus()
 		}
@@ -891,10 +937,15 @@ Item {
 				placeholderText: "Search nodes..."
 				focus: true
 
-				// Enter adds the first match.
+				// Enter adds the first node shown.
 				onAccepted: {
-					if (nodeListView.count > 0)
-						root.addNodeFromPopup(nodeListView.model[0].typeId)
+					var rows = addNodePopup.rows
+					for (var i = 0; i < rows.length; i++) {
+						if (!rows[i].isHeader) {
+							root.addNodeFromPopup(rows[i].typeId)
+							return
+						}
+					}
 				}
 			}
 
@@ -903,17 +954,68 @@ Item {
 				Layout.fillWidth: true
 				Layout.fillHeight: true
 				clip: true
+				model: addNodePopup.rows
 
-				model: graphModel.availableNodeTypes.filter(function(entry) {
-					return entry.title.toLowerCase().indexOf(nodeSearch.text.toLowerCase()) !== -1
-				})
-
-				delegate: ItemDelegate {
+				delegate: Rectangle {
+					id: row
 					required property var modelData
 
 					width: ListView.view ? ListView.view.width : 0
-					text: modelData.title
-					onClicked: root.addNodeFromPopup(modelData.typeId)
+					height: modelData.isHeader ? 26 : 28
+					radius: 4
+					color: rowMouse.containsMouse ? "#2f343d" : "transparent"
+
+					// Category header: arrow, name and node count
+					Row {
+						visible: row.modelData.isHeader
+						anchors.left: parent.left
+						anchors.leftMargin: 6
+						anchors.verticalCenter: parent.verticalCenter
+						spacing: 6
+
+						Text {
+							width: 10
+							text: row.modelData.open ? "▾" : "▸"
+							color: "#929ba8"
+							font.pixelSize: 11
+						}
+						Text {
+							text: row.modelData.category.toUpperCase()
+							color: "#b9c0cb"
+							font.pixelSize: 10
+							font.weight: Font.Bold
+							font.letterSpacing: 1.1
+						}
+						Text {
+							text: row.modelData.isHeader ? String(row.modelData.count) : ""
+							color: "#687280"
+							font.pixelSize: 10
+						}
+					}
+
+					// Node entry
+					Text {
+						visible: !row.modelData.isHeader
+						anchors.left: parent.left
+						anchors.leftMargin: 24
+						anchors.verticalCenter: parent.verticalCenter
+						text: row.modelData.title || ""
+						color: "#e2e7ef"
+						font.pixelSize: 12
+					}
+
+					MouseArea {
+						id: rowMouse
+						anchors.fill: parent
+						hoverEnabled: true
+						cursorShape: Qt.PointingHandCursor
+						onClicked: {
+							if (row.modelData.isHeader)
+								addNodePopup.toggleCategory(row.modelData.category)
+							else
+								root.addNodeFromPopup(row.modelData.typeId)
+						}
+					}
 				}
 			}
 		}

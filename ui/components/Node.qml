@@ -1,5 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
+import QtQuick.Controls
 import "SocketTypes.js" as SocketTypes
 
 // Visual representation of one node. Rows, top to bottom (like Blender):
@@ -19,6 +20,8 @@ Rectangle {
 	property var nodeSettings: []
 	property var nodeValues: ({})
 	property var connectedInputIds: []
+	property bool hasAppWidget: false     // Shows the eye toggle in the header.
+	property bool widgetVisible: true
 	property bool selected: false
 	property color accentColor: "#65a9ff"
 
@@ -41,11 +44,17 @@ Rectangle {
 	signal wireDragEnded(var mouseArea, var mouse)
 	signal disconnectSocketRequested(string nodeId, string socketId)
 	signal valueEdited(string nodeId, string key, var value)
+	signal widgetVisibilityToggled(string nodeId)
 	signal editingDone()
+
+	// Settings currently shown: app-widget-only ones hide while the eye is closed.
+	readonly property var shownSettings: nodeSettings.filter(function(s) {
+		return !s.appWidgetOnly || widgetVisible
+	})
 
 	implicitWidth: 230
 	implicitHeight: headerHeight + rowsTopPadding
-		+ (nodeOutputs.length + nodeSettings.length + nodeInputs.length) * rowPitch
+		+ (nodeOutputs.length + shownSettings.length + nodeInputs.length) * rowPitch
 		+ rowsBottomPadding
 	width: implicitWidth
 	height: implicitHeight
@@ -58,7 +67,7 @@ Rectangle {
 	// Center of a socket dot in this node's local coordinates, or null.
 	function getSocketCenter(socketId, isOutput) {
 		var sockets = isOutput ? root.nodeOutputs : root.nodeInputs
-		var firstRow = isOutput ? 0 : root.nodeOutputs.length + root.nodeSettings.length
+		var firstRow = isOutput ? 0 : root.nodeOutputs.length + root.shownSettings.length
 		for (var i = 0; i < sockets.length; i++) {
 			if (sockets[i].id === socketId) {
 				return {
@@ -239,12 +248,88 @@ Rectangle {
 
 		Text {
 			anchors.left: parent.left
+			anchors.right: root.hasAppWidget ? eyeButton.left : parent.right
 			anchors.leftMargin: 12
+			anchors.rightMargin: 8
 			anchors.verticalCenter: parent.verticalCenter
 			text: root.title
 			color: "#e8ebf0"
 			font.pixelSize: 13
 			font.bold: true
+			elide: Text.ElideRight
+		}
+
+		// Eye: whether this node's widget is shown in the compiled app.
+		Item {
+			id: eyeButton
+			visible: root.hasAppWidget
+			anchors.right: parent.right
+			anchors.rightMargin: 6
+			anchors.verticalCenter: parent.verticalCenter
+			width: 26
+			height: 22
+
+			Rectangle {
+				anchors.fill: parent
+				radius: 4
+				color: eyeMouse.containsMouse ? "#40465180" : "transparent"
+			}
+
+			Canvas {
+				id: eyeIcon
+				anchors.centerIn: parent
+				width: 18
+				height: 12
+
+				property bool open: root.widgetVisible
+				onOpenChanged: requestPaint()
+
+				onPaint: {
+					var ctx = getContext("2d")
+					ctx.clearRect(0, 0, width, height)
+					ctx.lineWidth = 1.5
+					ctx.lineCap = "round"
+
+					if (open) {
+						ctx.strokeStyle = "#e8ebf0"
+						ctx.fillStyle = "#e8ebf0"
+						// Almond outline
+						ctx.beginPath()
+						ctx.moveTo(1, 6)
+						ctx.quadraticCurveTo(9, -2, 17, 6)
+						ctx.quadraticCurveTo(9, 14, 1, 6)
+						ctx.stroke()
+						// Pupil
+						ctx.beginPath()
+						ctx.arc(9, 6, 2.5, 0, 2 * Math.PI)
+						ctx.fill()
+					} else {
+						ctx.strokeStyle = "#7f8996"
+						// Closed lid with lashes
+						ctx.beginPath()
+						ctx.moveTo(1, 4)
+						ctx.quadraticCurveTo(9, 11, 17, 4)
+						ctx.stroke()
+						ctx.beginPath()
+						ctx.moveTo(4.5, 7); ctx.lineTo(3, 10)
+						ctx.moveTo(9, 8.5); ctx.lineTo(9, 11.5)
+						ctx.moveTo(13.5, 7); ctx.lineTo(15, 10)
+						ctx.stroke()
+					}
+				}
+			}
+
+			MouseArea {
+				id: eyeMouse
+				anchors.fill: parent
+				hoverEnabled: true
+				cursorShape: Qt.PointingHandCursor
+				onClicked: root.widgetVisibilityToggled(root.nodeId)
+			}
+
+			ToolTip.visible: eyeMouse.containsMouse
+			ToolTip.delay: 500
+			ToolTip.text: root.widgetVisible ? "Shown in the compiled app" : "Hidden in the compiled app"
 		}
 	}
 
@@ -273,7 +358,7 @@ Rectangle {
 		}
 
 		Repeater {
-			model: root.nodeSettings
+			model: root.shownSettings
 
 			delegate: NodeRow {
 				width: rows.width

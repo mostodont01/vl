@@ -1,5 +1,6 @@
 {
     "id": "safety_gate",
+    "category": "Logic",
     "title": "Safety Gate",
     "description": "Passes velocity when active is true; stops when false",
     "inputs": [

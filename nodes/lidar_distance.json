@@ -1,5 +1,6 @@
 {
     "id": "lidar_distance",
+    "category": "Sensors",
     "title": "LiDAR Distance",
     "description": "Extracts radial distance at a specific bearing angle",
     "inputs": [

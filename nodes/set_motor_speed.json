@@ -1,5 +1,6 @@
 {
     "id": "set_motor_speed",
+    "category": "Actuators",
     "title": "Set Motor Speed",
     "description": "Commands velocity setpoint to the drive controller",
     "inputs": [

@@ -27,6 +27,8 @@ class Node:
     y: float
     # Current values of the node's settings and widget inputs, by id.
     values: dict[str, Any] = field(default_factory=dict)
+    # Only meaningful for nodes with an app widget: show it in the compiled app.
+    widget_visible: bool = True
 
 
 @dataclass
@@ -56,6 +58,8 @@ class GraphModel(QAbstractListModel):
     OutputsRole = IdRole + 6
     SettingsRole = IdRole + 7
     ValuesRole = IdRole + 8
+    HasAppWidgetRole = IdRole + 9
+    WidgetVisibleRole = IdRole + 10
 
     MAX_UNDO_STEPS = 200
 
@@ -94,6 +98,7 @@ class GraphModel(QAbstractListModel):
             "name": s.name,
             "type": s.type,
             "widget": s.widget.to_qml(s.type) if s.widget else None,
+            "appWidgetOnly": getattr(s, "app_widget_only", False),
         }
 
     # -- QAbstractListModel interface ---------------------------------------
@@ -109,6 +114,8 @@ class GraphModel(QAbstractListModel):
             self.OutputsRole: b"nodeOutputs",
             self.SettingsRole: b"nodeSettings",
             self.ValuesRole: b"nodeValues",
+            self.HasAppWidgetRole: b"hasAppWidget",
+            self.WidgetVisibleRole: b"widgetVisible",
         }
 
     def rowCount(self, parent=QModelIndex()):
@@ -140,6 +147,10 @@ class GraphModel(QAbstractListModel):
             return self._qml_sockets[node.type]["settings"]
         if role == self.ValuesRole:
             return node.values
+        if role == self.HasAppWidgetRole:
+            return self.catalog[node.type].app_widget is not None
+        if role == self.WidgetVisibleRole:
+            return node.widget_visible
 
         return None
 
@@ -165,10 +176,10 @@ class GraphModel(QAbstractListModel):
 
     @Property("QVariantList", constant=True)
     def availableNodeTypes(self) -> list[dict[str, str]]:
-        """Catalog entries for the add-node popup."""
+        """Catalog entries for the add-node popup, sorted by category, then title."""
         return [
-            {"typeId": d.type_id, "title": d.title, "description": d.description}
-            for d in self.catalog.values()
+            {"typeId": d.type_id, "title": d.title, "description": d.description, "category": d.category}
+            for d in sorted(self.catalog.values(), key=lambda d: (d.category.lower(), d.title.lower()))
         ]
 
     @Property(bool, notify=historyChanged)
@@ -234,10 +245,7 @@ class GraphModel(QAbstractListModel):
         nodes = [n for n in self.nodes if node_ids is None or n.id in node_ids]
         included = {n.id for n in nodes}
         return {
-            "nodes": [
-                {"id": n.id, "type": n.type, "x": n.x, "y": n.y, "values": copy.deepcopy(n.values)}
-                for n in nodes
-            ],
+            "nodes": [self._node_to_dict(n) for n in nodes],
             "connections": [
                 {
                     "source_node": c.source_node,
@@ -249,6 +257,13 @@ class GraphModel(QAbstractListModel):
                 if c.source_node in included and c.target_node in included
             ],
         }
+
+    def _node_to_dict(self, node: Node) -> dict[str, Any]:
+        data = {"id": node.id, "type": node.type, "x": node.x, "y": node.y,
+                "values": copy.deepcopy(node.values)}
+        if self.catalog[node.type].app_widget is not None:
+            data["widget_visible"] = node.widget_visible
+        return data
 
     def _build(self, data: dict) -> tuple[list[Node], dict[str, Connection], list[str]]:
         """Turn plain data into nodes and connections, skipping anything invalid.
@@ -284,7 +299,8 @@ class GraphModel(QAbstractListModel):
                     except (TypeError, ValueError):
                         warnings.append(f"Node {node_id}: invalid value for '{key}', using default.")
 
-            node = Node(id=node_id, type=type_id, x=x, y=y, values=values)
+            node = Node(id=node_id, type=type_id, x=x, y=y, values=values,
+                        widget_visible=raw.get("widget_visible", True) is not False)
             nodes.append(node)
             by_id[node_id] = node
 
@@ -462,6 +478,22 @@ class GraphModel(QAbstractListModel):
         self.dataChanged.emit(index, index, [self.ValuesRole])
         self.graphChanged.emit()
 
+    @Slot(str, bool)
+    def setWidgetVisible(self, node_id: str, visible: bool):
+        """Show or hide a node's widget in the compiled app (the header eye)."""
+        row = self._row_of(node_id)
+        if row == -1:
+            return
+        node = self.nodes[row]
+        if self.catalog[node.type].app_widget is None or node.widget_visible == visible:
+            return
+
+        self._record()
+        node.widget_visible = visible
+        index = self.index(row, 0)
+        self.dataChanged.emit(index, index, [self.WidgetVisibleRole])
+        self.graphChanged.emit()
+
     # -- Clipboard ----------------------------------------------------------
 
     def _insert_fragment(self, fragment: dict, dx: float, dy: float) -> list[str]:
@@ -475,7 +507,8 @@ class GraphModel(QAbstractListModel):
             new_id = self._next_node_id(node.type, taken)
             taken.add(new_id)
             id_map[node.id] = new_id
-            new_nodes.append(Node(new_id, node.type, node.x + dx, node.y + dy, node.values))
+            new_nodes.append(Node(new_id, node.type, node.x + dx, node.y + dy, node.values,
+                                  node.widget_visible))
 
         if not new_nodes:
             return []
