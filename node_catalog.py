@@ -8,6 +8,7 @@ frozen dataclasses that the rest of the app uses.
 """
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -97,14 +98,21 @@ class SettingDef:
 
 @dataclass(frozen=True)
 class AppWidgetDef:
-    """A widget this node shows in the compiled app (e.g. a number display).
+    """Marks a node that shows a widget in the compiled app.
 
-    The widget is implemented in the node's own C++ code; class_name names
-    the class there. The exact C++ interface is designed together with the
-    compiler. The compiled app lays out all visible widgets automatically.
+    The widget is drawn by the node's own C++ class (drawWidget()). The
+    compiled app lays out all visible widgets automatically. title_setting
+    names a setting whose value is used as the widget title (default: the
+    node title).
     """
-    class_name: str
-    options: dict[str, Any] = field(default_factory=dict)
+    title_setting: str = ""
+
+
+@dataclass(frozen=True)
+class TypeDef:
+    """A custom socket type declared by a node: its C++ name and header."""
+    cpp: str
+    header: str   # One of the node's code files.
 
 
 @dataclass(frozen=True)
@@ -118,6 +126,8 @@ class NodeDef:
     group: str = "Other"      # Shift+A menu section; also gives the node its colour.
     app_widget: AppWidgetDef | None = None
     code: tuple[str, ...] = ()  # Source files, relative to the JSON file.
+    cpp_class: str = ""       # The C++ class implementing the node ("class").
+    types: dict[str, TypeDef] = field(default_factory=dict)  # Custom socket types it declares.
 
     def socket_types(self) -> set[str]:
         return {s.type for s in self.inputs + self.outputs}
@@ -198,11 +208,42 @@ def _parse_setting(raw: Any, where: str) -> SettingDef:
                       app_widget_only=raw.get("app_widget_only", False) is True)
 
 
-def _parse_app_widget(raw: Any, where: str) -> AppWidgetDef:
+def _parse_app_widget(raw: Any, settings: tuple[SettingDef, ...], where: str) -> AppWidgetDef:
     if not isinstance(raw, dict):
         raise CatalogError(f"{where}: 'app_widget' must be an object")
-    class_name = _require(raw, "class", f"{where} app_widget")
-    return AppWidgetDef(class_name=class_name, options={k: v for k, v in raw.items() if k != "class"})
+    title_setting = raw.get("title_setting", "")
+    if title_setting and title_setting not in {s.id for s in settings}:
+        raise CatalogError(f"{where}: app_widget title_setting '{title_setting}' is not a setting")
+    return AppWidgetDef(title_setting=title_setting)
+
+
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_QUALIFIED = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
+def _check_identifier(name: str, where: str):
+    """Socket and setting ids become C++ member names."""
+    if not _IDENTIFIER.match(name) or name.startswith("vl"):
+        raise CatalogError(f"{where}: id '{name}' must be a C++ identifier (letters, digits, _) "
+                           "and must not start with 'vl'")
+
+
+def _parse_types(raw: Any, code: tuple[str, ...], where: str) -> dict[str, TypeDef]:
+    """'types': {"LidarScan": {"cpp": "LidarScan", "header": "src/lidar_scan.hpp"}}"""
+    if not isinstance(raw, dict):
+        raise CatalogError(f"{where}: 'types' must be an object")
+    types = {}
+    for name, info in raw.items():
+        if not isinstance(info, dict):
+            raise CatalogError(f"{where}: type '{name}' must be an object")
+        cpp = _require(info, "cpp", f"{where} type '{name}'")
+        header = _require(info, "header", f"{where} type '{name}'")
+        if not _QUALIFIED.match(cpp):
+            raise CatalogError(f"{where}: type '{name}': '{cpp}' is not a C++ type name")
+        if header not in code:
+            raise CatalogError(f"{where}: type '{name}': header '{header}' must be listed in 'code'")
+        types[name] = TypeDef(cpp=cpp, header=header)
+    return types
 
 
 def _parse_code(raw: Any, where: str) -> tuple[str, ...]:
@@ -245,10 +286,17 @@ def parse_node_definition(raw: Any, where: str) -> NodeDef:
     if "app_widget" not in raw and any(s.app_widget_only for s in settings):
         raise CatalogError(f"{where}: 'app_widget_only' settings need the node to have an 'app_widget'")
 
-    _unique([s.id for s in inputs], f"{where} inputs")
-    _unique([s.id for s in outputs], f"{where} outputs")
-    # Inputs and settings share the node's value storage, so their ids must not clash.
-    _unique([s.id for s in inputs] + [s.id for s in settings], f"{where} inputs/settings")
+    # Every socket and setting becomes a member of the node's C++ class, so
+    # all their ids must be unique C++ identifiers.
+    all_ids = [s.id for s in inputs + outputs + settings]
+    _unique(all_ids, f"{where} sockets/settings")
+    for i in all_ids:
+        _check_identifier(i, where)
+
+    cpp_class = raw.get("class", "")
+    if cpp_class and not _QUALIFIED.match(cpp_class):
+        raise CatalogError(f"{where}: 'class' must be a C++ class name")
+    code = _parse_code(raw["code"], where) if "code" in raw else ()
 
     return NodeDef(
         type_id=type_id,
@@ -258,8 +306,10 @@ def parse_node_definition(raw: Any, where: str) -> NodeDef:
         settings=settings,
         description=raw.get("description", ""),
         group=raw.get("group", "Other"),
-        app_widget=_parse_app_widget(raw["app_widget"], where) if "app_widget" in raw else None,
-        code=_parse_code(raw["code"], where) if "code" in raw else (),
+        app_widget=_parse_app_widget(raw["app_widget"], settings, where) if "app_widget" in raw else None,
+        code=code,
+        cpp_class=cpp_class,
+        types=_parse_types(raw["types"], code, where) if "types" in raw else {},
     )
 
 

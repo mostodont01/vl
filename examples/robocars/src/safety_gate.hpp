@@ -1,8 +1,12 @@
-// Stub for the SafetyGate node. The C++ interface VL generates code against
-// doesn't exist yet; this file only shows how a node bundles its code.
 #pragma once
+#include "vl/runtime.hpp"
 
-class SafetyGate {
+// Passes the speed through while active; sends 0 otherwise.
+class SafetyGate : public vl::Node {
 public:
-    void update();
+    vl::Input<bool> active;
+    vl::Input<int32_t> speed_in;
+    vl::Output<int32_t> speed_out;
+
+    void process() override { speed_out.set(active.get() ? speed_in.get() : 0); }
 };

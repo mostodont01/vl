@@ -1,8 +1,16 @@
-// Stub for the ReadLidar node. The C++ interface VL generates code against
-// doesn't exist yet; this file only shows how a node bundles its code.
 #pragma once
+#include "vl/runtime.hpp"
+#include "lidar_scan.hpp"
 
-class ReadLidar {
+// Produces a LiDAR scan `frequency` times per second.
+class ReadLidar : public vl::Node {
 public:
-    void update();
+    float frequency = 10;
+    vl::Output<LidarScan> scan;
+
+    void setup() override;
+    void process() override;
+
+private:
+    int frame_ = 0;
 };

@@ -1,1 +1,2 @@
 PySide6>=6.8,<7
+ziglang==0.17.0  # cross-compiler for Raspberry Pi / ARM64 builds

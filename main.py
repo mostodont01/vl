@@ -6,6 +6,7 @@ from PySide6.QtCore import QLoggingCategory, QUrl
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
+from builder import Builder
 from graph_model import GraphModel
 from node_catalog import CatalogError, load_node_definitions
 from project import Project
@@ -36,11 +37,13 @@ def main() -> int:
         return 1
 
     graph_model = GraphModel(builtin_nodes)
-    project = Project(graph_model, builtin_nodes, default_palette)
+    builder = Builder()
+    project = Project(graph_model, builtin_nodes, APP_DIR / "nodes", default_palette, builder)
 
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("graphModel", graph_model)
     engine.rootContext().setContextProperty("project", project)
+    engine.rootContext().setContextProperty("builder", builder)
     engine.load(QUrl.fromLocalFile(str((APP_DIR / "ui" / "Main.qml").resolve())))
 
     if not engine.rootObjects():

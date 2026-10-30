@@ -1,9 +1,11 @@
 {
     "id": "input_number",
+    "class": "InputNumber",
+    "code": ["src/input_number.hpp"],
     "group": "Input",
     "title": "Input Number",
     "description": "A number the user can change while the compiled app runs",
-    "app_widget": { "class": "InputNumberWidget" },
+    "app_widget": { "title_setting": "label" },
     "settings": [
         { "id": "label", "name": "Label", "type": "string", "app_widget_only": true,
           "widget": { "kind": "string", "default": "Value" } },

@@ -1,10 +1,12 @@
 {
     "id": "constant_int",
+    "class": "ConstantInt",
+    "code": ["src/constant_int.hpp"],
     "group": "Values",
     "title": "Constant Int",
     "description": "Emits an integer literal value",
     "settings": [
-        { "id": "value", "name": "Value", "type": "int32",
+        { "id": "number", "name": "Number", "type": "int32",
           "widget": { "kind": "number", "default": 0 } }
     ],
     "outputs": [

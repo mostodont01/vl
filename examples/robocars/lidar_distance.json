@@ -1,15 +1,43 @@
 {
     "id": "lidar_distance",
-    "code": ["src/lidar_distance.cpp", "src/lidar_distance.hpp"],
+    "class": "LidarDistance",
+    "code": [
+        "src/lidar_distance.cpp",
+        "src/lidar_distance.hpp",
+        "src/lidar_scan.hpp"
+    ],
+    "types": {
+        "LidarScan": {
+            "cpp": "LidarScan",
+            "header": "src/lidar_scan.hpp"
+        }
+    },
     "group": "Sensors",
     "title": "LiDAR Distance",
     "description": "Extracts radial distance at a specific bearing angle",
     "inputs": [
-        { "id": "scan", "name": "Scan", "type": "LidarScan" },
-        { "id": "angle", "name": "Angle", "type": "int32",
-          "widget": { "kind": "number", "default": 0, "min": 0, "max": 359 } }
+        {
+            "id": "scan",
+            "name": "Scan",
+            "type": "LidarScan"
+        },
+        {
+            "id": "angle",
+            "name": "Angle",
+            "type": "int32",
+            "widget": {
+                "kind": "number",
+                "default": 0,
+                "min": 0,
+                "max": 359
+            }
+        }
     ],
     "outputs": [
-        { "id": "distance", "name": "Distance", "type": "int32" }
+        {
+            "id": "distance",
+            "name": "Distance",
+            "type": "int32"
+        }
     ]
 }

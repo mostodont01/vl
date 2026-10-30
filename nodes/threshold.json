@@ -1,5 +1,7 @@
 {
     "id": "threshold",
+    "class": "Threshold",
+    "code": ["src/threshold.hpp"],
     "group": "Logic",
     "title": "Threshold",
     "description": "Compares value against threshold",

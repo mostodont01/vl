@@ -32,6 +32,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QSettings, QUrl, Property, Signal, Slot
 
 import compiler
+from builder import Builder
 from graph_model import GraphModel
 from node_catalog import CatalogError, NodeDef, NodePackage, load_node_package, node_package_from_files
 
@@ -86,10 +87,18 @@ class Project(QObject):
     # (group names, type names). The UI lets the user adjust them.
     colorsSuggested = Signal("QVariantList", "QVariantList")
 
-    def __init__(self, graph: GraphModel, builtin_catalog: dict[str, NodeDef], default_palette: dict):
+    def __init__(self, graph: GraphModel, builtin_catalog: dict[str, NodeDef], builtin_dir: Path,
+                 default_palette: dict, builder: Builder):
         super().__init__()
         self._graph = graph
         self._builtin = dict(builtin_catalog)
+        # Built-in node id -> its JSON file (for loading its code when compiling).
+        self._builtin_files: dict[str, Path] = {}
+        for path in builtin_dir.glob("*.json"):
+            node_id = json.loads(path.read_text(encoding="utf-8")).get("id")
+            if node_id in builtin_catalog:
+                self._builtin_files[node_id] = path
+        self._builder = builder
         self._default_palette = load_palette(default_palette)
         self._path: Path | None = None
         self._settings = QSettings("VL", "VL")
@@ -309,17 +318,51 @@ class Project(QObject):
 
     @Slot(result=bool)
     def compileProject(self) -> bool:
+        """Generate the C++ project and start building it. Progress goes to the builder's log."""
+        builder = self._builder
+        builder.begin()
         settings = self._compile_settings
+
+        name = settings["executable_name"] or (self._path.stem if self._path else "app")
+        graph = self._graph.to_dict()
+        problems = [f"{i['title']}: {i['message']}" for i in self._graph.issues if i["severity"] == "error"]
+
         output_dir = settings["output_dir"] or self.defaultOutputDir
         if not output_dir:
-            self.messageRaised.emit(
-                "Choose an output folder",
-                "The project isn't saved yet, so there's no default build folder. "
-                "Save the project or pick an output folder in the Compile popup.",
-            )
+            problems.insert(0, "The project isn't saved yet, so there's no default build folder. "
+                               "Save the project or choose an output folder.")
+        packages: dict[str, NodePackage] = {}
+        for type_id in sorted({n["type"] for n in graph["nodes"]}):
+            if type_id in self._imported:
+                packages[type_id] = self._imported[type_id]
+            elif type_id in self._builtin_files:
+                try:
+                    packages[type_id] = load_node_package(self._builtin_files[type_id])
+                except CatalogError as e:
+                    problems.append(str(e))
+
+        builder.append(f"Compiling {name} for {settings['target']} ({settings['build_type']})")
+        if output_dir:
+            output_path = _to_path(output_dir)
+            if not output_path.is_absolute() and self._path:
+                output_path = self._path.parent / output_path
+            output_path = output_path.resolve()
+            result = compiler.generate_project(graph, self._graph.catalog, packages, problems,
+                                               settings, output_path, name)
+        else:
+            result = compiler.GenerateResult(False, problems)
+
+        if not result.ok:
+            for message in result.messages:
+                builder.append(f"  • {message}")
+            count = len(result.messages)
+            builder.fail(f"{count} problem{'s' if count != 1 else ''} to fix first; nothing was built.")
             return False
-        name = settings["executable_name"] or (self._path.stem if self._path else "app")
-        return compiler.compile_project(self._graph.to_dict(), settings, _to_path(output_dir), name)
+
+        for message in result.messages:
+            builder.append(message)
+        builder.build(output_path, settings, name, result.gui)
+        return True
 
     # -- Palette ------------------------------------------------------------
 

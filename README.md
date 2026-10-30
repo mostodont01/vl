@@ -28,6 +28,38 @@ python main.py
 
 If creating the virtual environment fails because Ubuntu manages Python packages externally, make sure `python3-venv` is installed and run the commands from your project directory.
 
+## Compiling graphs
+
+**Compile** (Ctrl+B) turns the graph into a C++ project (CMake) in the output
+folder and builds it. Building needs a C++ compiler and CMake, plus SDL2 if
+any app widget is shown:
+
+```bash
+sudo apt install build-essential cmake libsdl2-dev
+```
+
+Without them VL still writes the project, and the build log says what to
+install. Dear ImGui is downloaded by CMake on the first build.
+
+### Raspberry Pi (Linux ARM64)
+
+Pick **Linux ARM64** as the target. VL cross-compiles with
+[Zig](https://ziglang.org) (the `ziglang` package from `requirements.txt`)
+and builds SDL2 from source into the program, so nothing else is needed on
+this machine besides the packages above. The first ARM64 build takes a few
+minutes.
+
+The program runs on 64-bit Raspberry Pi OS (Bookworm or newer) and other
+ARM64 Linux systems with glibc 2.34+. Copy it over (e.g. `scp`) and run it.
+With the desktop it opens a fullscreen window; without one (Raspberry Pi OS
+Lite) it draws straight to the screen, which needs:
+
+```bash
+sudo apt install libgbm1 libegl1 libgles2
+```
+
+Windows builds need `g++-mingw-w64-x86-64` (untested).
+
 ## Current state
 
 Early node editor front end.
@@ -74,20 +106,24 @@ Early node editor front end.
 - `graph_model.py` — nodes, values, typed connections, undo/redo, clipboard
 - `project.py` — project files (zip), unsaved changes, recent projects, compile settings, palette, imported nodes
 - `palette.json` — default group and socket type colours for new projects
-- `examples/robocars/` — importable RoboCars nodes (JSON + stub C++)
-- `compiler.py` — compile options and the (not yet implemented) compiler entry point
+- `examples/robocars/` — importable RoboCars nodes (JSON + C++; LiDAR simulated for now)
+- `compiler.py` — compile options, graph checks and C++/CMake code generation
+- `builder.py` — runs CMake in the background and collects the build log
+- `runtime/vl/` — C++ runtime every compiled program uses (nodes, scheduler, widget window)
+- `runtime/cmake/` — cross-compile toolchains (Zig for ARM64) and the SDL2-from-source build
 - `nodes/` — built-in node types, one JSON file each
 - `ui/Main.qml` — application window: toolbar, File menu, inspector, startup popup, dialogs
 - `ui/components/NodeCanvas.qml` — canvas: navigation, wires, selection, clipboard, add-node popup
 - `ui/components/Node.qml` — a single node and its rows
 - `ui/components/ValueWidget.qml` — inline value editors (number, string, select, checkbox)
 - `ui/components/CompilePopup.qml` — compile options popup
+- `ui/components/BuildPopup.qml` — build log
 - `ui/components/MessageBox.qml` — themed message / confirmation dialog
 - `ui/components/SettingsPage.qml` — Settings tab
 - `ui/components/ColorPicker.qml` — colour chooser
 - `ui/components/Toast.qml` — short fading messages
 - `ui/components/ShortcutMenuItem.qml` — menu item with a shortcut hint
-- `requirements.txt` — Python dependency
+- `requirements.txt` — Python dependencies (PySide6, Zig)
 
 ## License
 

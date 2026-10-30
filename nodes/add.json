@@ -1,5 +1,7 @@
 {
     "id": "add",
+    "class": "Add",
+    "code": ["src/add.hpp"],
     "group": "Math",
     "title": "Add",
     "description": "Adds A and B",

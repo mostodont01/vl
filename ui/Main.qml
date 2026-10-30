@@ -379,7 +379,24 @@ ApplicationWindow {
 
 	CompilePopup {
 		id: compilePopup
-		onCompileRequested: project.compileProject()
+		onCompileRequested: {
+			buildPopup.open()
+			project.compileProject()
+		}
+	}
+
+	BuildPopup {
+		id: buildPopup
+		objectName: "buildPopup"
+	}
+
+	// If the build log was closed while building, say how it ended.
+	Connections {
+		target: builder
+		function onFinished(success, summary) {
+			if (!buildPopup.visible)
+				toast.show(summary)
+		}
 	}
 
 	MessageBox {

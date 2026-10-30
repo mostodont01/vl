@@ -1,14 +1,38 @@
 {
     "id": "read_lidar",
-    "code": ["src/read_lidar.cpp", "src/read_lidar.hpp"],
+    "class": "ReadLidar",
+    "code": [
+        "src/read_lidar.cpp",
+        "src/read_lidar.hpp",
+        "src/lidar_scan.hpp"
+    ],
+    "types": {
+        "LidarScan": {
+            "cpp": "LidarScan",
+            "header": "src/lidar_scan.hpp"
+        }
+    },
     "group": "Sensors",
     "title": "Read LiDAR",
     "description": "Produces raw LiDAR range scan frames",
     "settings": [
-        { "id": "frequency", "name": "Frequency (Hz)", "type": "float32",
-          "widget": { "kind": "number", "default": 10, "min": 1, "max": 100 } }
+        {
+            "id": "frequency",
+            "name": "Frequency (Hz)",
+            "type": "float32",
+            "widget": {
+                "kind": "number",
+                "default": 10,
+                "min": 1,
+                "max": 100
+            }
+        }
     ],
     "outputs": [
-        { "id": "scan", "name": "Scan", "type": "LidarScan" }
+        {
+            "id": "scan",
+            "name": "Scan",
+            "type": "LidarScan"
+        }
     ]
 }

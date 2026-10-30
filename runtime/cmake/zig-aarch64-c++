@@ -1,0 +1,4 @@
+#!/bin/sh
+# Zig as an ARM64 Linux C++ compiler. glibc 2.36 = Debian 12 / Raspberry Pi OS Bookworm,
+# so the program also runs on every newer system. VL sets VL_ZIG to its own Zig.
+exec "${VL_ZIG:-zig}" c++ -target aarch64-linux-gnu.2.36 -fno-sanitize=undefined "$@"

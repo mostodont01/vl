@@ -1,9 +1,11 @@
 {
     "id": "show_number",
+    "class": "ShowNumber",
+    "code": ["src/show_number.hpp"],
     "group": "Output",
     "title": "Show Number",
     "description": "Displays a number in the compiled app",
-    "app_widget": { "class": "ShowNumberWidget" },
+    "app_widget": { "title_setting": "label" },
     "settings": [
         { "id": "label", "name": "Label", "type": "string", "app_widget_only": true,
           "widget": { "kind": "string", "default": "Value" } }

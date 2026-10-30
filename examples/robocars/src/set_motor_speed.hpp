@@ -1,8 +1,10 @@
-// Stub for the SetMotorSpeed node. The C++ interface VL generates code against
-// doesn't exist yet; this file only shows how a node bundles its code.
 #pragma once
+#include "vl/runtime.hpp"
 
-class SetMotorSpeed {
+// Sends a speed to the drive controller.
+class SetMotorSpeed : public vl::Node {
 public:
-    void update();
+    vl::Input<int32_t> speed;
+
+    void process() override;
 };
